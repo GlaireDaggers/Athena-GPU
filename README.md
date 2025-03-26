@@ -18,6 +18,6 @@ Executing `python3 test.py` rasterizes a rainbow triangle into a 32x32 image and
 - [ ] Implement blending logic
 - [ ] Stencil read/compare/write logic?
 - [ ] Implement table fog logic (look up fog density in table per pixel, blend output color w/ fog color)
-- [ ] Work on tile dispatch logic (should be able to feed a table of command queues to tile dispatch, which in turn feeds commands to each tile core)
+- [ ] Work on tile dispatch logic (should be able to feed a table of per-tile command queues to tile dispatch, which in turn feeds commands to each tile core)
 - [ ] Logic for writing tile buffer contents into main "shared" memory (ideally: should be able to provide the address & dimensions of a framebuffer in main RAM & let the tile dispatch handle writing each tile's results into the correct location relative to given address)
 - [ ] Start working on actually synthesizing to an evaluation board for testing (currently eyeing Arty Z7-20, but open to other suggestions)
