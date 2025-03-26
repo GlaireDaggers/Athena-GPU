@@ -10,7 +10,9 @@ Executing `python3 test.py` rasterizes a rainbow triangle into a 32x32 image and
 
 # Goal
 
-The current target is a simple tile based 3D GPU inspired by early PVR and 3DFX chipsets. The hardware is, effectively, *just* the rasterizer portion of the pipeline - the CPU is expected to perform transform, clipping, lighting, and even tile binning. The CPU generates a table of command queue pointers, one per onscreen tile, and submits this table to the tile dispatch. The tile dispatch takes care of dispatching the command queues to each physical tile core, as well as blitting each tile core's internal buffer back into a single "main" framebuffer in shared memory.
+The current target is a simple tile based 3D GPU inspired by early PVR and 3DFX chipsets. The hardware is, effectively, *just* the rasterizer portion of the pipeline - the CPU is expected to perform transform, clipping, lighting, and tile binning. In fact, the CPU is even responsible for computing the "iterators" for each of a triangle's attributes (color, 1/w, s/w, t/w, and z/w), similar to the way 3DFX hardware was structured. This greatly simplifies the design of the rasterizer.
+
+Theoretically: the CPU would generates a table of command queue pointers, one per onscreen tile, and submit this table to the tile dispatch. The tile dispatch would take care of dispatching the command queues to each physical tile core, as well as blitting each tile core's internal buffer back into a single "main" framebuffer in shared memory.
 
 # To Do / Roadmap
 
