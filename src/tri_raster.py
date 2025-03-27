@@ -9,7 +9,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_sow_init, i_sow_dx, i_sow_dy,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
-              i_en, o_busy, o_wr_en, o_wr_data, o_wr_pos, DIM=32):
+              i_en, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos, DIM=32):
     """
     Triangle rasterizer
 
@@ -35,8 +35,10 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_zow_dy: z/w increment wrt y - Q12.12 fixed point
     - i_en: Begin rasterization
     - o_busy: 1 if busy, 0 if idle
-    - o_wr_en: for each pixel in cluster, 1 if output pixel is valid, 0 otherwise
-    - o_wr_data: Output pixel cluster colors
+    - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
+    - o_wr_data_rgb: Output pixel cluster colors
+    - o_wr_en_ds: for each pixel in cluster, 1 if output pixel depth+stencil is valid, 0 otherwise
+    - o_wr_data_ds: Output pixel cluster depth+stencil values
     - o_wr_pos: Output pixel cluster x/y
     
     - DIM: width/height of render area
@@ -113,6 +115,14 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             return intbv(255)[8:0]
         else:
             return a[20:12]
+        
+    def sat_depth(a):
+        if a < 0:
+            return intbv(0)[24:0]
+        elif a > 0xFFFFFF:
+            return intbv(0xFFFFFF)[24:0]
+        else:
+            return a[24:0]
 
     @always(i_clk.posedge, i_rst)
     def process():
@@ -334,8 +344,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             g = sat_and_truncate(_col[i][1])
             b = sat_and_truncate(_col[i][2])
             a = sat_and_truncate(_col[i][3])
-            o_wr_data[i].next = concat(a, b, g, r)
-            o_wr_en[i].next = _state == t_State.RASTERLOOP and (_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0
+            o_wr_data_rgb[i].next = concat(a, b, g, r)
+            o_wr_data_ds[i].next = sat_depth(_zow[i])
+            o_wr_en_rgb[i].next = o_wr_en_ds[i].next = _state == t_State.RASTERLOOP and (_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0
         o_wr_pos[0].next = _p[0]
         o_wr_pos[1].next = _p[1]
         o_busy.next = _state != t_State.WAITING
