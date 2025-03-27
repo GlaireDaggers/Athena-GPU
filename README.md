@@ -16,7 +16,7 @@ Theoretically: the CPU would generates a table of command queue pointers, one pe
 
 # To Do / Roadmap
 
-- [ ] Output interpolated Z/W coords to `test_depth.png` to verify depth is interpolated correctly
+- [X] Output interpolated Z/W coords to `test_depth.png` to verify depth is interpolated correctly
 - [ ] Test checkerboard pattern to verify S/T coords are interpolated correctly
 - [ ] Implement depth read, compare, & write logic
 - [ ] Implement basic texture fetch logic (w/ "texture cache" mechanism)
