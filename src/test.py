@@ -137,7 +137,13 @@ def Top():
         tri_raster_1ow_dy.next = 0
         tri_raster_zow_init.next = 0
         tri_raster_zow_dx.next = int(0.03125 * 0.5 * (1 << 24))
-        tri_raster_zow_dy.next = int(-0.03125 * 0.25 * (1 << 24))
+        tri_raster_zow_dy.next = int(0.03125 * 0.25 * (1 << 24))
+        tri_raster_sow_init.next = 0
+        tri_raster_sow_dx.next = int(0.03125 * 4095)
+        tri_raster_sow_dy.next = int(0.03125 * 0.5 * 4095)
+        tri_raster_tow_init.next = 0
+        tri_raster_tow_dx.next = int(0.03125 * 4095)
+        tri_raster_tow_dy.next = int(-0.03125 * 0.5 * 4095)
         tri_raster_en.next = 1
         yield delay(20)
         tri_raster_en.next = 0

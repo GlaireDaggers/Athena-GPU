@@ -337,14 +337,19 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     @always_comb
     def process_comb():
         for i in range(4):
-            _s[i] = (_sow[i] * _1ow[i]) >> 12
-            _t[i] = (_tow[i] * _1ow[i]) >> 12
-        for i in range(4):
-            r = sat_and_truncate(_col[i][0])
-            g = sat_and_truncate(_col[i][1])
-            b = sat_and_truncate(_col[i][2])
-            a = sat_and_truncate(_col[i][3])
-            o_wr_data_rgb[i].next = concat(a, b, g, r)
+            #r = sat_and_truncate(_col[i][0])
+            #g = sat_and_truncate(_col[i][1])
+            #b = sat_and_truncate(_col[i][2])
+            #a = sat_and_truncate(_col[i][3])
+            #o_wr_data_rgb[i].next = concat(a, b, g, r)
+            s = (_sow[i] * _1ow[i]) >> 12
+            t = (_tow[i] * _1ow[i]) >> 12
+            _s[i].next = s
+            _t[i].next = t
+            checker_s = (s >> 10) & 1
+            checker_t = (t >> 10) & 1
+            checker = checker_s ^ checker_t
+            o_wr_data_rgb[i].next = 0xFFFFFFFF if (checker == 1) else 0
             o_wr_data_ds[i].next = sat_depth(_zow[i])
             o_wr_en_rgb[i].next = o_wr_en_ds[i].next = _state == t_State.RASTERLOOP and (_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0
         o_wr_pos[0].next = _p[0]
