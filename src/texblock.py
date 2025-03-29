@@ -5,10 +5,10 @@ t_State = enum("IDLE", "FILL_RGBA4444", "FILL_RGBA8888", "FILL_A8", "FILL_NXTC_0
 """
 === NXTC FORMAT ===
 
-The NXTC format is inspired by the PACKMAN compression scheme (the predecessor to ETC1).
+The NXTC format is inspired by the PACKMAN compression scheme (the predecessor to ETC1) which compresses a 4x4 RGB block into 64 bits.
 However, there are a few major differences:
 - Instead of partitioning each 4x4 block into a pair of 2x4 strips, the entire block gets a single 24-bit median color and luma offset scale instead
-- Rather than a 3-bit "luma table" value, NXTC instead supplies a full 8-bit "luma scale". Each index in the block *effectively* maps to the table (-1.0, 1.0, -0.25, 0.25) which is multiplied by the luma scale and truncated
+- Rather than a 3-bit "luma table" value, NXTC instead supplies a full 8-bit "luma scale". Each index in the block *effectively* maps to the table (-0.25, 0.25, -1.0, 1.0) which is multiplied by the luma scale and truncated
 The actual logic can be done using simple sign inversions and bit shifts, which can be trivially implemented in hardware without a lookup table
 - Texel indices are stored in z-curve order, rather than in column-major order like ETC1. In other words, indices are ordered like so:
 =============
@@ -21,6 +21,8 @@ The actual logic can be done using simple sign inversions and bit shifts, which 
 |10|11|14|15|
 =============
 """
+
+# TODO: Support non-swizzled textures?
 
 @block
 def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
@@ -59,7 +61,7 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
     _nxtc_offsets = [Signal(intbv(0)[10:].signed()) for _ in range(16)]
 
     # final luma offset = trunc(luma_scale * scale_table[idx])
-    # scale_table = (-1.0, 1.0, -0.25, 0.25)
+    # scale_table = (-0.25, 0.25, -1.0, 1.0)
 
     def sat(a):
         if a < 0:
@@ -158,7 +160,7 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
                     low_bit = i << 1
                     high_bit = low_bit + 2
                     idx = i_mem_dat[high_bit:low_bit]
-                    _nxtc_offsets[i].next = (_nxtc_lscale if idx[1] else -_nxtc_lscale) >> (2 if idx[0] else 0)
+                    _nxtc_offsets[i].next = (_nxtc_lscale if idx[0] else -_nxtc_lscale) >> (0 if idx[1] else 2)
                 _state.next = t_State.DEC_NXTC
         elif _state == t_State.DEC_NXTC:
             for i in range(16):
