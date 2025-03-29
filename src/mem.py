@@ -17,9 +17,9 @@ def RAM(o_data, i_data, i_addr, i_we, i_clk, WIDTH=8, DEPTH=128, ID="mem"):
     return write, read
 
 @block
-def ROM(dout, addr, CONTENT):
+def ROM(o_data, i_addr, CONTENT):
     @always_comb
     def read():
-        dout.next = CONTENT[int(addr)]
+        o_data.next = CONTENT[int(i_addr)]
 
     return read
