@@ -23,7 +23,7 @@ def Top():
     test_tx_i_tex_w = Signal(intbv(0)[4:0])
     test_tx_i_tex_h = Signal(intbv(0)[4:0])
     test_tx_i_tex_fmt = Signal(intbv(0)[2:0])
-    test_tx_i_smp = [Signal(intbv(0)[7:0]) for _ in range(2)]
+    test_tx_i_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
     test_tx_o_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
     test_tx_i_stb = Signal(bool(0))
     test_tx_o_ack = Signal(bool(0))
@@ -35,16 +35,18 @@ def Top():
                        test_tx_o_mem_adr, test_tx_i_mem_dat, test_tx_o_mem_stb, test_tx_i_mem_ack)
     
     smp_i_stb = Signal(bool(0))
-    smp_i_st = [Signal(intbv(0)[32:]) for _ in range(2)]
+    smp_i_st = [Signal(intbv(0)[32:].signed()) for _ in range(2)]
     smp_i_w = Signal(intbv(0)[4:0])
     smp_i_h = Signal(intbv(0)[4:0])
+    smp_i_clmp_s = Signal(bool(0))
+    smp_i_clmp_t = Signal(bool(0))
     smp_o_dat = Signal(intbv(0)[32:0])
     smp_o_ack = Signal(bool(0))
     smp_o_tc_stb = Signal(bool(0))
-    smp_o_tc_smp = [Signal(intbv(0)[7:0]) for _ in range(2)]
+    smp_o_tc_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
     smp_i_tc_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
     smp_i_tc_ack = Signal(bool(0))
-    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_o_dat, smp_o_ack,
+    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_o_dat, smp_o_ack,
                           smp_o_tc_stb, smp_o_tc_smp, smp_i_tc_dat, smp_i_tc_ack)
 
     test_img = Image.new('RGB', (32, 32))
@@ -73,16 +75,17 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
-        # test: sample 8x8 texture at address 0, NXTC, sample pos (0.45, 0.45)
+        # test: sample 8x8 texture at address 0, NXTC, clamp S
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 3
         test_tx_i_tex_h.next = 3
         test_tx_i_tex_fmt.next = 3
+        smp_i_clmp_s.next = True
 
         for j in range(32):
             for i in range(32):
-                s = i / 32.0
-                t = j / 32.0
+                s = (i / 16.0) - 0.25
+                t = (j / 16.0) - 0.25
                 smp_i_st[0].next = int(s * 4096)
                 smp_i_st[1].next = int(t * 4096)
                 smp_i_stb.next = True
@@ -92,7 +95,6 @@ def Top():
                 r = smp_o_dat[8:0]
                 g = smp_o_dat[16:8]
                 b = smp_o_dat[24:16]
-                # print("(%s %s): %s %s %s" % (i, j, r, g, b))
                 test_img.putpixel((i, j), (r, g, b))
                 yield delay(20)
         
@@ -102,4 +104,4 @@ def Top():
     return clk_driver, drive_test, drive_comb, test_ram, test_smp, test_tx
 
 inst = Top()
-inst.run_sim(20 * 3200)
+inst.run_sim(20 * 6400)

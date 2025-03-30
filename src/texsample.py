@@ -3,7 +3,7 @@ from myhdl import *
 t_State = enum("IDLE", "LERP1", "LERP2")
 
 @block
-def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
+def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, o_dat, o_ack,
                o_tc_stb, o_tc_smp, i_tc_dat, i_tc_ack):
     """
     Sampler which takes as input 24.12 fixed point ST coordinates and texture width/height and produces a sample position which can be routed to a TexCache,
@@ -13,6 +13,8 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
     - i_st: Input texture coordinates (S,T) 24.12 fixed point
     - i_w: log2 of texture width
     - i_h: log2 of texture height
+    - i_clmp_s: Clamp S
+    - i_clmp_t: Clamp T
     - o_dat: Output sampled color
     - o_ack: Output valid signal
     
@@ -23,12 +25,11 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
     """
 
     _state = Signal(t_State.IDLE)
-    _valid = Signal(bool(0))
 
     _samples = [Signal(intbv(0)[32:]) for _ in range(4)]
 
-    _px = Signal(intbv(0)[32:])
-    _py = Signal(intbv(0)[32:])
+    _px = Signal(intbv(0)[32:].signed())
+    _py = Signal(intbv(0)[32:].signed())
     
     _dx0_r = Signal(intbv(0)[32:].signed())
     _dx0_g = Signal(intbv(0)[32:].signed())
@@ -50,8 +51,10 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
         _samples[1].next = i_tc_dat[1]
         _samples[2].next = i_tc_dat[2]
         _samples[3].next = i_tc_dat[3]
+        
         _px.next = i_st[0] << i_w
-        _py.next = i_st[1] << i_w
+        _py.next = i_st[1] << i_h
+
         _dx0_r.next = concat(intbv(0)[24:0], i_tc_dat[1][8:0])      - concat(intbv(0)[24:0], i_tc_dat[0][8:0])
         _dx0_g.next = concat(intbv(0)[24:0], i_tc_dat[1][16:8])     - concat(intbv(0)[24:0], i_tc_dat[0][16:8])
         _dx0_b.next = concat(intbv(0)[24:0], i_tc_dat[1][24:16])    - concat(intbv(0)[24:0], i_tc_dat[0][24:16])
@@ -65,14 +68,11 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
     def clk_logic():
         if i_rstn == 0:
             _state.next = t_State.IDLE
-            _valid.next = False
         elif _state == t_State.IDLE:
-            _valid.next = False
             if i_stb and i_tc_ack:
                 read_req()
                 _state.next = t_State.LERP1
         elif _state == t_State.LERP1:
-            _valid.next = False
             dx0r_next = _samples[0][8:0] + ((_dx0_r * _px[12:0]) >> 12)
             dx0g_next = _samples[0][16:8] + ((_dx0_g * _px[12:0]) >> 12)
             dx0b_next = _samples[0][24:16] + ((_dx0_b * _px[12:0]) >> 12)
@@ -81,11 +81,6 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
             dx1g_next = _samples[2][16:8] + ((_dx1_g * _px[12:0]) >> 12)
             dx1b_next = _samples[2][24:16] + ((_dx1_b * _px[12:0]) >> 12)
             dx1a_next = _samples[2][32:24] + ((_dx1_a * _px[12:0]) >> 12)
-            #print("SX: %s" % (_px[12:0] / 4096.0)) 
-            #print("X0: %s %s" % (_samples[0][8:0], _samples[1][8:0]))
-            #print("X1: %s %s" % (_samples[2][8:0], _samples[3][8:0]))
-            #print("DX0: %s" % dx0r_next)
-            #print("DX1: %s" % dx1r_next)
             _dx0_r.next = dx0r_next
             _dx0_g.next = dx0g_next
             _dx0_b.next = dx0b_next
@@ -94,17 +89,8 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
             _dy_g.next = dx1g_next - dx0g_next
             _dy_b.next = dx1b_next - dx0b_next
             _dy_a.next = dx1a_next - dx0a_next
-            #print("DY: %s" % _dy_r)
             _state.next = t_State.LERP2
         elif _state == t_State.LERP2:
-            #print("SY: %s" % (_py[12:0] / 4096.0))
-            r = intbv(_dx0_r + ((_dy_r * _py[12:0]) >> 12))[8:0]
-            g = intbv(_dx0_g + ((_dy_g * _py[12:0]) >> 12))[8:0]
-            b = intbv(_dx0_b + ((_dy_b * _py[12:0]) >> 12))[8:0]
-            a = intbv(_dx0_a + ((_dy_a * _py[12:0]) >> 12))[8:0]
-            #print("OUT Y: %d" % r)
-            o_dat.next = concat(a, b, g, r)
-            _valid.next = True
             if i_stb and i_tc_ack:
                 read_req()
                 _state.next = t_State.LERP1
@@ -119,7 +105,13 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, o_dat, o_ack,
         o_tc_smp[0].next = x[32:12]
         o_tc_smp[1].next = y[32:12]
 
-        o_ack.next = i_stb and _valid
+        r = intbv(_dx0_r + ((_dy_r * _py[12:0]) >> 12))[8:0]
+        g = intbv(_dx0_g + ((_dy_g * _py[12:0]) >> 12))[8:0]
+        b = intbv(_dx0_b + ((_dy_b * _py[12:0]) >> 12))[8:0]
+        a = intbv(_dx0_a + ((_dy_a * _py[12:0]) >> 12))[8:0]
+        o_dat.next = concat(a, b, g, r)
+
+        o_ack.next = i_stb and (_state == t_State.LERP2)
         o_tc_stb.next = i_stb and (_state == t_State.IDLE or _state == t_State.LERP2)
 
     return clk_logic, comb_logic

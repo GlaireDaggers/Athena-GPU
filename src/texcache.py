@@ -151,6 +151,16 @@ def TexCache(i_rstn, i_clk, i_tex_adr, i_tex_w, i_tex_h, i_tex_fmt, i_smp, o_dat
         o_dat[1].next = tb_o_dat[blk01][1]
         o_dat[2].next = tb_o_dat[blk10][2]
         o_dat[3].next = tb_o_dat[blk11][3]
+
+        if o_ack.next:
+            if tb_o_dat[blk00][0] == 0:
+                raise Exception("WTF")
+            if tb_o_dat[blk01][1] == 0:
+                raise Exception("WTF")
+            if tb_o_dat[blk10][2] == 0:
+                raise Exception("WTF")
+            if tb_o_dat[blk11][3] == 0:
+                raise Exception("WTF")
         ####
         
         for i in range(4):
