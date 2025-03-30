@@ -93,11 +93,11 @@ def TexCache(i_rstn, i_clk, i_tex_adr, i_tex_w, i_tex_h, i_tex_fmt, i_smp, o_dat
         tb_i_smp.next = concat(i_smp[1][2:], i_smp[0][2:])
 
         ####
-        blw = i_tex_w >> 2
-        blh = i_tex_h >> 2
+        blw = (1 << i_tex_w) >> 2
+        blh = (1 << i_tex_h) >> 2
 
-        blw_mask = (1 << blw) - 1
-        blh_mask = (1 << blh) - 1
+        blw_mask = blw - 1
+        blh_mask = blh - 1
 
         blk_x0 = concat(intbv(0)[11:0], i_smp[0][9:2]) & blw_mask
         blk_x1 = (concat(intbv(0)[11:0], i_smp[0][9:2]) + 1) & blw_mask
@@ -105,34 +105,46 @@ def TexCache(i_rstn, i_clk, i_tex_adr, i_tex_w, i_tex_h, i_tex_fmt, i_smp, o_dat
         blk_y0 = concat(intbv(0)[11:0], i_smp[1][9:2]) & blh_mask
         blk_y1 = (concat(intbv(0)[11:0], i_smp[1][9:2]) + 1) & blh_mask
 
-        blk00_offs = blk_x0 + (blk_y0 << blw)
-        blk01_offs = blk_x1 + (blk_y0 << blw)
-        blk10_offs = blk_x0 + (blk_y1 << blw)
-        blk11_offs = blk_x1 + (blk_y1 << blw)
-        
+        blk00_offs = blk_x0 + (blk_y0 * blw)
+        blk01_offs = blk_x1 + (blk_y0 * blw)
+        blk10_offs = blk_x0 + (blk_y1 * blw)
+        blk11_offs = blk_x1 + (blk_y1 * blw)
+
         blk_shift = _blk_shift_table[i_tex_fmt]
 
-        # assign addresses to each block
+        blk_adr_00 = i_tex_adr + (blk00_offs << blk_shift)
+        blk_adr_01 = i_tex_adr + (blk01_offs << blk_shift)
+        blk_adr_10 = i_tex_adr + (blk10_offs << blk_shift)
+        blk_adr_11 = i_tex_adr + (blk11_offs << blk_shift)
+
+        #print("blw/h: %s %s" % (blw, blh))
+        #print("blk_x0/y0: %s %s" % (blk_x0, blk_y0))
+        #print("BLK ADR 00: %s" % blk_adr_00)
+        #print("BLK ADR 01: %s" % blk_adr_01)
+        #print("BLK ADR 10: %s" % blk_adr_10)
+        #print("BLK ADR 11: %s" % blk_adr_11)
+
+        # assign calculated addresses to each block
         if blk00 == 0:
-            tb_i_blk_adr[0].next = i_tex_adr + (blk00_offs << blk_shift)
-            tb_i_blk_adr[1].next = i_tex_adr + (blk01_offs << blk_shift)
-            tb_i_blk_adr[2].next = i_tex_adr + (blk10_offs << blk_shift)
-            tb_i_blk_adr[3].next = i_tex_adr + (blk11_offs << blk_shift)
+            tb_i_blk_adr[0].next = blk_adr_00
+            tb_i_blk_adr[1].next = blk_adr_01
+            tb_i_blk_adr[2].next = blk_adr_10
+            tb_i_blk_adr[3].next = blk_adr_11
         elif blk00 == 1:
-            tb_i_blk_adr[1].next = i_tex_adr + (blk00_offs << blk_shift)
-            tb_i_blk_adr[0].next = i_tex_adr + (blk01_offs << blk_shift)
-            tb_i_blk_adr[3].next = i_tex_adr + (blk10_offs << blk_shift)
-            tb_i_blk_adr[2].next = i_tex_adr + (blk11_offs << blk_shift)
+            tb_i_blk_adr[1].next = blk_adr_00
+            tb_i_blk_adr[0].next = blk_adr_01
+            tb_i_blk_adr[3].next = blk_adr_10
+            tb_i_blk_adr[2].next = blk_adr_11
         elif blk00 == 2:
-            tb_i_blk_adr[2].next = i_tex_adr + (blk00_offs << blk_shift)
-            tb_i_blk_adr[3].next = i_tex_adr + (blk01_offs << blk_shift)
-            tb_i_blk_adr[0].next = i_tex_adr + (blk10_offs << blk_shift)
-            tb_i_blk_adr[1].next = i_tex_adr + (blk11_offs << blk_shift)
+            tb_i_blk_adr[2].next = blk_adr_00
+            tb_i_blk_adr[3].next = blk_adr_01
+            tb_i_blk_adr[0].next = blk_adr_10
+            tb_i_blk_adr[1].next = blk_adr_11
         elif blk00 == 3:
-            tb_i_blk_adr[3].next = i_tex_adr + (blk00_offs << blk_shift)
-            tb_i_blk_adr[2].next = i_tex_adr + (blk01_offs << blk_shift)
-            tb_i_blk_adr[1].next = i_tex_adr + (blk10_offs << blk_shift)
-            tb_i_blk_adr[0].next = i_tex_adr + (blk11_offs << blk_shift)
+            tb_i_blk_adr[3].next = blk_adr_00
+            tb_i_blk_adr[2].next = blk_adr_01
+            tb_i_blk_adr[1].next = blk_adr_10
+            tb_i_blk_adr[0].next = blk_adr_11
 
         # assemble output data from blocks we sampled from
         o_dat[0].next = tb_o_dat[blk00][0]

@@ -178,3 +178,4 @@ cython_debug/
 # Test artifacts
 src/test.png
 src/test_depth.png
+src/test_texsample.png
