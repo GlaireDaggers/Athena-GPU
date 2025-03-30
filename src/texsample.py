@@ -46,15 +46,19 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, o_dat, 
     _dy_b = Signal(intbv(0)[32:].signed())
     _dy_a = Signal(intbv(0)[32:].signed())
 
+    def clamp_coord(v, vmin, vmax):
+        if v < vmin:
+            return vmin
+        elif v >= vmax:
+            return vmax
+        return v
+
     def read_req():
         _samples[0].next = i_tc_dat[0]
         _samples[1].next = i_tc_dat[1]
         _samples[2].next = i_tc_dat[2]
         _samples[3].next = i_tc_dat[3]
         
-        _px.next = i_st[0] << i_w
-        _py.next = i_st[1] << i_h
-
         _dx0_r.next = concat(intbv(0)[24:0], i_tc_dat[1][8:0])      - concat(intbv(0)[24:0], i_tc_dat[0][8:0])
         _dx0_g.next = concat(intbv(0)[24:0], i_tc_dat[1][16:8])     - concat(intbv(0)[24:0], i_tc_dat[0][16:8])
         _dx0_b.next = concat(intbv(0)[24:0], i_tc_dat[1][24:16])    - concat(intbv(0)[24:0], i_tc_dat[0][24:16])
@@ -99,11 +103,21 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, o_dat, 
 
     @always_comb
     def comb_logic():
-        x = i_st[0] << i_w
-        y = i_st[1] << i_h
+        maxw = (1 << i_w) - 1
+        maxh = (1 << i_h) - 1
 
-        o_tc_smp[0].next = x[32:12]
-        o_tc_smp[1].next = y[32:12]
+        # note: half texel bias
+        x = (i_st[0] << i_w) - 2048
+        y = (i_st[1] << i_h) - 2048
+
+        sx = clamp_coord(x, 0, maxw << 12) if i_clmp_s else x
+        sy = clamp_coord(y, 0, maxh << 12) if i_clmp_t else y
+
+        _px.next = sx
+        _py.next = sy
+
+        o_tc_smp[0].next = (sx >> 12) & maxw
+        o_tc_smp[1].next = (sy >> 12) & maxh
 
         r = intbv(_dx0_r + ((_dy_r * _py[12:0]) >> 12))[8:0]
         g = intbv(_dx0_g + ((_dy_g * _py[12:0]) >> 12))[8:0]

@@ -75,17 +75,18 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
-        # test: sample 8x8 texture at address 0, NXTC, clamp S
+        # test: sample 8x8 texture at address 0, NXTC, clamp S, clamp T
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 3
         test_tx_i_tex_h.next = 3
         test_tx_i_tex_fmt.next = 3
         smp_i_clmp_s.next = True
+        smp_i_clmp_t.next = True
 
         for j in range(32):
             for i in range(32):
-                s = (i / 16.0) - 0.25
-                t = (j / 16.0) - 0.25
+                s = (i / 16.0) + (1.0 / 16.0 * 0.5) - 0.5
+                t = (j / 16.0) + (1.0 / 16.0 * 0.5) - 0.5
                 smp_i_st[0].next = int(s * 4096)
                 smp_i_st[1].next = int(t * 4096)
                 smp_i_stb.next = True
