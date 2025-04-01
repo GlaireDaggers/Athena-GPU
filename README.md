@@ -19,8 +19,8 @@ Theoretically: the CPU would generates a table of command queue pointers, one pe
 - [X] Output interpolated Z/W coords to `test_depth.png` to verify depth is interpolated correctly
 - [X] Test checkerboard pattern to verify S/T coords are interpolated correctly
 - [ ] Implement depth read, compare, & write logic
-- [ ] Implement basic texture fetch logic (w/ "texture cache" mechanism)
-- [ ] Combine interpolated vertex color w/ fetched texel color
+- [X] Implement texturing logic w/ support for multiple texture formats (w/ "texture cache" mechanism)
+- [X] Combine interpolated vertex color w/ fetched texel color
 - [ ] Implement blending logic
 - [ ] Stencil read/compare/write logic?
 - [ ] Implement table fog logic (look up fog density in table per pixel, blend output color w/ fog color)
