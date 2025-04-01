@@ -405,7 +405,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                 cg = intbv((vg * tg) >> 8)[8:0]
                 cb = intbv((vb * tb) >> 8)[8:0]
                 ca = intbv((va * ta) >> 8)[8:0]
-                o_wr_data_rgb[i].next = concat(ta, tb, tg, tr)
+                o_wr_data_rgb[i].next = concat(ca, cb, cg, cr)
             else:
                 o_wr_data_rgb[i].next = concat(va, vb, vg, vr)
             o_wr_data_ds[i].next = sat_depth(_zow[i])
