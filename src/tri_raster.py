@@ -9,8 +9,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_sow_init, i_sow_dx, i_sow_dy,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
-              i_tex_en,
-              i_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos,
+              i_tex_en, i_dtest_en, i_dcmp,
+              i_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_d, o_wr_data_d, o_wr_pos,
+              i_rd_data_rgb, i_rd_data_d,
               o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
               DIM=32):
     """
@@ -37,13 +38,17 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_zow_dx: z/w increment wrt x - Q12.12 fixed point
     - i_zow_dy: z/w increment wrt y - Q12.12 fixed point
     - i_tex_en: Enable texturing
+    - i_dtest_en: Enable depth test
+    - i_dcmp: Depth compare mode (0 = never, 1 = always, 2 = equal, 3 = not-equal, 4 = less, 5 = greater, 6 = less-or-equal, 7 = greater-or-equal)
     - i_stb: Input draw triangle request signal
     - o_busy: 1 if busy, 0 if idle
     - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
     - o_wr_data_rgb: Output pixel cluster colors
-    - o_wr_en_ds: for each pixel in cluster, 1 if output pixel depth+stencil is valid, 0 otherwise
-    - o_wr_data_ds: Output pixel cluster depth+stencil values
+    - o_wr_en_ds: for each pixel in cluster, 1 if output pixel depth is valid, 0 otherwise
+    - o_wr_data_d: Output pixel cluster depth values
     - o_wr_pos: Output pixel cluster x/y
+    - i_rd_data_rgb: Input pixel cluster colors
+    - i_rd_data_d: Input pixel cluster depth values
     - o_smp_stb: Output request transaction signal to TexSampler unit
     - o_smp_st: Output ST coordinates to TexSampler unit
     - i_smp_dat: Input texture sample from TexSampler unit
@@ -103,6 +108,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
 
     _tex_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
 
+    _sample_valid = [Signal(bool(0)) for _ in range(4)]
+    _depth_test = [Signal(bool(0)) for _ in range(4)]
+
     def isTopLeft(a, b):
         return (a[1] == b[1] and b[0] > a[0]) or (b[1] > a[1])
 
@@ -114,23 +122,27 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     
     def orient2D(a, b, c):
         return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-    def sat_and_truncate(a):
-        if a < 0:
-            return intbv(0)[8:0]
-        elif a > (255 << 12):
-            return intbv(255)[8:0]
-        else:
-            return a[20:12]
         
-    def sat_depth(a):
-        if a < 0:
-            return intbv(0)[24:0]
-        elif a > 0xFFFFFF:
-            return intbv(0xFFFFFF)[24:0]
+    def depth_test():
+        if i_dcmp == 0:
+            return [not i_dtest_en for _ in range(4)]
+        elif i_dcmp == 1:
+            return [True for _ in range(4)]
+        elif i_dcmp == 2:
+            return [(not i_dtest_en or _zow[i] == i_rd_data_d[i]) for i in range(4)]
+        elif i_dcmp == 3:
+            return [(not i_dtest_en or _zow[i] != i_rd_data_d[i]) for i in range(4)]
+        elif i_dcmp == 4:
+            return [(not i_dtest_en or _zow[i] < i_rd_data_d[i]) for i in range(4)]
+        elif i_dcmp == 5:
+            return [(not i_dtest_en or _zow[i] > i_rd_data_d[i]) for i in range(4)]
+        elif i_dcmp == 6:
+            return [(not i_dtest_en or _zow[i] <= i_rd_data_d[i]) for i in range(4)]
+        elif i_dcmp == 7:
+            return [(not i_dtest_en or _zow[i] >= i_rd_data_d[i]) for i in range(4)]
         else:
-            return a[24:0]
-
+            return [False for _ in range(4)]
+    
     @always(i_clk.posedge, i_rst)
     def process():
         if i_rst == 0:
@@ -258,7 +270,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             #
             if i_tex_en:
                 # if the computed bary weights lie outside the triangle, just skip texturing this cluster
-                if (_w0[0][31] | _w1[0][31] | _w2[0][31]) and (_w0[1][31] | _w1[1][31] | _w2[1][31]) and (_w0[2][31] | _w1[2][31] | _w2[2][31]) and (_w0[3][31] | _w1[3][31] | _w2[3][31]):
+                if (not _sample_valid[0]) and (not _sample_valid[1]) and (not _sample_valid[2]) and (not _sample_valid[3]):
                     _state.next = t_State.RASTERLOOP
                 else:
                     _state.next = t_State.TEX0
@@ -355,24 +367,24 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     _state.next = t_State.TEX0
         elif _state == t_State.TEX0:
             # actually if the computed bary weights lie outside the triangle, just skip texturing this cluster
-            if (_w0[0][31] | _w1[0][31] | _w2[0][31]) and (_w0[1][31] | _w1[1][31] | _w2[1][31]) and (_w0[2][31] | _w1[2][31] | _w2[2][31]) and (_w0[3][31] | _w1[3][31] | _w2[3][31]):
+            if (not _sample_valid[0] or not _depth_test[0]) and (not _sample_valid[1] or not _depth_test[1]) and (not _sample_valid[2] or not _depth_test[2]) and (not _sample_valid[3] or not _depth_test[3]):
                 _state.next = t_State.RASTERLOOP
             elif i_smp_ack:
                 _tex_col[0].next = i_smp_dat
-                if (_w0[1][31] | _w1[1][31] | _w2[1][31]) == 0:
+                if _sample_valid[1] and _depth_test[1]:
                     _state.next = t_State.TEX1
-                elif (_w0[2][31] | _w1[2][31] | _w2[2][31]) == 0:
+                elif _sample_valid[2] and _depth_test[2]:
                     _state.next = t_State.TEX2
-                elif (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
                 else:
                     _state.next = t_State.RASTERLOOP
         elif _state == t_State.TEX1:
             if i_smp_ack:
                 _tex_col[1].next = i_smp_dat
-                if (_w0[2][31] | _w1[2][31] | _w2[2][31]) == 0:
+                if _sample_valid[2] and _depth_test[2]:
                     _state.next = t_State.TEX2
-                elif (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
                 else:
                     _state.next = t_State.RASTERLOOP
@@ -380,7 +392,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             if i_smp_ack:
                 _tex_col[2].next = i_smp_dat
                 _state.next = t_State.TEX3
-                if (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                if _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
                 else:
                     _state.next = t_State.RASTERLOOP
@@ -391,7 +403,13 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
 
     @always_comb
     def process_comb():
+        dtest = depth_test()
+        smp_valid = [(_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0 for i in range(4)]
+
         for i in range(4):
+            _sample_valid[i].next = smp_valid[i]
+            _depth_test[i].next = dtest[i]
+            
             vr = _col[i][0][20:12]
             vg = _col[i][1][20:12]
             vb = _col[i][2][20:12]
@@ -408,8 +426,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                 o_wr_data_rgb[i].next = concat(ca, cb, cg, cr)
             else:
                 o_wr_data_rgb[i].next = concat(va, vb, vg, vr)
-            o_wr_data_ds[i].next = sat_depth(_zow[i])
-            o_wr_en_rgb[i].next = o_wr_en_ds[i].next = _state == t_State.RASTERLOOP and (_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0
+
+            o_wr_data_d[i].next = _zow[i]
+            o_wr_en_rgb[i].next = o_wr_en_d[i].next = _state == t_State.RASTERLOOP and smp_valid[i] and dtest[i]
 
         o_smp_stb.next = _state == t_State.TEX0 or _state == t_State.TEX1 or _state == t_State.TEX2 or _state == t_State.TEX3
 

@@ -78,9 +78,11 @@ def Top():
     tri_raster_busy = Signal(bool(0))
     tri_raster_wr_en_rgb = [Signal(bool(0)) for _ in range(4)]
     tri_raster_wr_data_rgb = [Signal(intbv(0)[32:0]) for _ in range(4)]
-    tri_raster_wr_en_ds = [Signal(bool(0)) for _ in range(4)]
-    tri_raster_wr_data_ds = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    tri_raster_wr_en_d = [Signal(bool(0)) for _ in range(4)]
+    tri_raster_wr_data_d = [Signal(intbv(0)[32:0]) for _ in range(4)]
     tri_raster_wr_pos = [Signal(intbv(0)[32:0]) for _ in range(2)]
+    tri_raster_rd_data_rgb = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    tri_raster_rd_data_d = [Signal(intbv(0)[32:0]) for _ in range(4)]
     tri_raster_v0 = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_v1 = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_v2 = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
@@ -100,6 +102,8 @@ def Top():
     tri_raster_zow_dx = Signal(intbv(0)[32:0].signed())
     tri_raster_zow_dy = Signal(intbv(0)[32:0].signed())
     tri_raster_tex_en = Signal(bool(0))
+    tri_raster_dtest_en = Signal(bool(0))
+    tri_raster_dcmp = Signal(intbv(0)[3:0])
     tri_raster_o_smp_stb = Signal(bool(0))
     tri_raster_o_smp_st = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_i_smp_dat = Signal(intbv(0)[32:0])
@@ -110,11 +114,12 @@ def Top():
                            tri_raster_sow_init, tri_raster_sow_dx, tri_raster_sow_dy,
                            tri_raster_tow_init, tri_raster_tow_dx, tri_raster_tow_dy,
                            tri_raster_zow_init, tri_raster_zow_dx, tri_raster_zow_dy,
-                           tri_raster_tex_en,
+                           tri_raster_tex_en, tri_raster_dtest_en, tri_raster_dcmp,
                            tri_raster_stb, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
-                           tri_raster_wr_en_ds, tri_raster_wr_data_ds,
+                           tri_raster_wr_en_d, tri_raster_wr_data_d,
                            tri_raster_wr_pos,
+                           tri_raster_rd_data_rgb, tri_raster_rd_data_d,
                            tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
                            DIM = 32)
 
@@ -156,8 +161,10 @@ def Top():
         for i in range(4):
             colorbuffer_din[i].next = tri_raster_wr_data_rgb[i]
             colorbuffer_we[i].next = tri_raster_wr_en_rgb[i]
-            depthbuffer_din[i].next = tri_raster_wr_data_ds[i]
-            depthbuffer_we[i].next = tri_raster_wr_en_ds[i]
+            depthbuffer_din[i].next = tri_raster_wr_data_d[i]
+            depthbuffer_we[i].next = tri_raster_wr_en_d[i]
+            tri_raster_rd_data_rgb[i].next = colorbuffer_dout[i]
+            tri_raster_rd_data_d[i].next = depthbuffer_dout[i]
 
     @always(clk.posedge)
     def write_img():
@@ -169,12 +176,12 @@ def Top():
                 py += i >> 1 
                 col = unpack_rgb(tri_raster_wr_data_rgb[i])
                 buffer_color.putpixel((px, py), col)
-            if tri_raster_wr_en_ds[i]:
+            if tri_raster_wr_en_d[i]:
                 px = tri_raster_wr_pos[0] << 1
                 py = tri_raster_wr_pos[1] << 1
                 px += i % 2
                 py += i >> 1
-                depth = int(tri_raster_wr_data_ds[i])
+                depth = int(tri_raster_wr_data_d[i])
                 buffer_depth.putpixel((px, py), depth >> 16)
 
     @instance
@@ -214,6 +221,9 @@ def Top():
         tri_raster_tow_init.next = 0
         tri_raster_tow_dx.next = 0
         tri_raster_tow_dy.next = int(0.03125 * 4095)
+        # enable depth test, greater-or-equal
+        tri_raster_dtest_en.next = True
+        tri_raster_dcmp.next = 7
         # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 5
