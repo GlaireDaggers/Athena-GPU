@@ -20,7 +20,7 @@ def Top():
     clk = Signal(0)
     clk_driver = ClkDriver(clk)
 
-    test_tex_rom_contents = tuple(map(int, np.fromfile("test_texdata_2.bin", dtype='uint32')))
+    test_tex_rom_contents = tuple(map(int, np.fromfile("util/test_crate_2_nxtc.bin", dtype='uint32')))
     test_tex_rom_o_data = Signal(intbv(0)[32:0])
     test_tex_rom_i_adr = Signal(intbv(0)[8:0])
     test_tex_rom = ROM(test_tex_rom_o_data, test_tex_rom_i_adr, CONTENT=test_tex_rom_contents)
@@ -210,18 +210,18 @@ def Top():
         tri_raster_zow_dy.next = int(0.03125 * 0.25 * (1 << 24))
         tri_raster_sow_init.next = 0
         tri_raster_sow_dx.next = int(0.03125 * 4095)
-        tri_raster_sow_dy.next = int(0.03125 * 0.5 * 4095)
+        tri_raster_sow_dy.next = int(-0.03125 * 0.5 * 4095)
         tri_raster_tow_init.next = 0
-        tri_raster_tow_dx.next = int(0.03125 * 4095)
-        tri_raster_tow_dy.next = int(-0.03125 * 0.5 * 4095)
-        # test texture: 8x8 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
+        tri_raster_tow_dx.next = 0
+        tri_raster_tow_dy.next = int(0.03125 * 4095)
+        # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
-        test_tx_i_tex_w.next = 3
-        test_tx_i_tex_h.next = 3
+        test_tx_i_tex_w.next = 5
+        test_tx_i_tex_h.next = 5
         test_tx_i_tex_fmt.next = 2
         smp_i_flt.next = True
-        smp_i_clmp_s.next = False
-        smp_i_clmp_t.next = False
+        smp_i_clmp_s.next = True
+        smp_i_clmp_t.next = True
         #
         tri_raster_tex_en.next = 1
         tri_raster_stb.next = 1

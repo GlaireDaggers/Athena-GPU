@@ -8,7 +8,7 @@ t_State = enum("IDLE", "FILL_RGBA4444", "FILL_RGBA8888", "FILL_NXTC_0", "FILL_NX
 The NXTC format is inspired by the PACKMAN compression scheme (the predecessor to ETC1) which compresses a 4x4 RGB block into 64 bits.
 However, there are a few major differences:
 - Instead of partitioning each 4x4 block into a pair of 2x4 strips, the entire block gets a single 24-bit median color and luma offset scale instead
-- Rather than a 3-bit "luma table" value, NXTC instead supplies a full 8-bit "luma scale". Each index in the block *effectively* maps to the table (-0.25, 0.25, -1.0, 1.0) which is multiplied by the luma scale and truncated
+- Rather than a 3-bit "luma table" value, NXTC instead supplies a full 8-bit "luma scale". Each index in the block *effectively* maps to the table (-0.5, 0.5, -1.0, 1.0) which is multiplied by the luma scale and truncated
 The actual logic can be done using simple sign inversions and bit shifts, which can be trivially implemented in hardware without a lookup table
 - Texel indices are stored in z-curve order, rather than in column-major order like ETC1. In other words, indices are ordered like so:
 =============
@@ -71,7 +71,7 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
     _nxtc_mode = Signal(0)
 
     # final luma offset = trunc(luma_scale * scale_table[idx])
-    # scale_table = (-0.25, 0.25, -1.0, 1.0)
+    # scale_table = (-0.5, 0.5, -1.0, 1.0)
 
     def sat(a):
         if a < 0:
@@ -164,7 +164,7 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
                     low_bit = i << 1
                     high_bit = low_bit + 2
                     idx = i_mem_dat[high_bit:low_bit]
-                    _nxtc_offsets_a[i].next = (_nxtc_lscale_a if idx[0] else -_nxtc_lscale_a) >> (0 if idx[1] else 2)
+                    _nxtc_offsets_a[i].next = (_nxtc_lscale_a if idx[0] else -_nxtc_lscale_a) >> (0 if idx[1] else 1)
                 _state.next = t_State.DEC_NXTC
         elif _state == t_State.DEC_NXTC:
             for i in range(16):
