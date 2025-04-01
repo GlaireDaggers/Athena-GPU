@@ -72,7 +72,7 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, i_flt, 
         if i_flt:
             _state.next = t_State.LERP1
         else:
-            _state.next = t_State.LERP2
+            _state.next = t_State.IDLE
 
     @always(i_clk.posedge, i_rstn)
     def clk_logic():
@@ -100,10 +100,7 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, i_flt, 
             _dy_a.next = dx1a_next - dx0a_next
             _state.next = t_State.LERP2
         elif _state == t_State.LERP2:
-            if i_stb and i_tc_ack:
-                read_req()
-            else:
-                _state.next = t_State.IDLE
+            _state.next = t_State.IDLE
 
     @always_comb
     def comb_logic():
@@ -129,10 +126,11 @@ def TexSampler(i_rstn, i_clk, i_stb, i_st, i_w, i_h, i_clmp_s, i_clmp_t, i_flt, 
             b = intbv(_dx0_b + ((_dy_b * _py[12:0]) >> 12))[8:0]
             a = intbv(_dx0_a + ((_dy_a * _py[12:0]) >> 12))[8:0]
             o_dat.next = concat(a, b, g, r)
+            o_ack.next = i_stb and _state == t_State.LERP2
         else:
-            o_dat.next = _samples[0]
+            o_dat.next = i_tc_dat[0]
+            o_ack.next = i_stb and i_tc_ack
 
-        o_ack.next = i_stb and (_state == t_State.LERP2)
         o_tc_stb.next = i_stb and (_state == t_State.IDLE or _state == t_State.LERP2)
 
     return clk_logic, comb_logic

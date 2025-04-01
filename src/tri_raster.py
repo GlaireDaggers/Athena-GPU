@@ -1,6 +1,6 @@
-from myhdl import block, always, always_comb, intbv, Signal, enum, concat
+from myhdl import *
 
-t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP")
+t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP", "TEX0", "TEX1", "TEX2", "TEX3")
 
 @block
 def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
@@ -101,8 +101,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     _zow_dy = Signal(intbv(0)[32:0].signed())
     _zow = [Signal(intbv(0)[32:0].signed()) for _ in range(4)]
 
-    _s = [Signal(intbv(0)[32:0].signed()) for _ in range(4)]
-    _t = [Signal(intbv(0)[32:0].signed()) for _ in range(4)]
+    _tex_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
 
     def isTopLeft(a, b):
         return (a[1] == b[1] and b[0] > a[0]) or (b[1] > a[1])
@@ -257,7 +256,14 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             _zow[2].next = _zow_row + _zow_dy
             _zow[3].next = _zow_row + _zow_dx + _zow_dy
             #
-            _state.next = t_State.RASTERLOOP
+            if i_tex_en:
+                # if the computed bary weights lie outside the triangle, just skip texturing this cluster
+                if (_w0[0][31] | _w1[0][31] | _w2[0][31]) and (_w0[1][31] | _w1[1][31] | _w2[1][31]) and (_w0[2][31] | _w1[2][31] | _w2[2][31]) and (_w0[3][31] | _w1[3][31] | _w2[3][31]):
+                    _state.next = t_State.RASTERLOOP
+                else:
+                    _state.next = t_State.TEX0
+            else:
+                _state.next = t_State.RASTERLOOP
         elif _state == t_State.RASTERLOOP:
             if _p[0] == _bmax[0]:
                 if _p[1] == _bmax[1]:
@@ -323,6 +329,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     # set position to next row
                     _p[0].next = _bmin[0]
                     _p[1].next = _p[1] + 1
+                    # if texturing is enabled: switch to texturing state
+                    if i_tex_en:
+                        _state.next = t_State.TEX0
             else:
                 # increment bary weights
                 for i in range(4):
@@ -341,25 +350,82 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     _zow[i].next = _zow[i] + (_zow_dx << 1)
                 # increment position
                 _p[0].next = _p[0] + 1
+                # if texturing is enabled: switch to texturing state
+                if i_tex_en:
+                    _state.next = t_State.TEX0
+        elif _state == t_State.TEX0:
+            # actually if the computed bary weights lie outside the triangle, just skip texturing this cluster
+            if (_w0[0][31] | _w1[0][31] | _w2[0][31]) and (_w0[1][31] | _w1[1][31] | _w2[1][31]) and (_w0[2][31] | _w1[2][31] | _w2[2][31]) and (_w0[3][31] | _w1[3][31] | _w2[3][31]):
+                _state.next = t_State.RASTERLOOP
+            elif i_smp_ack:
+                _tex_col[0].next = i_smp_dat
+                if (_w0[1][31] | _w1[1][31] | _w2[1][31]) == 0:
+                    _state.next = t_State.TEX1
+                elif (_w0[2][31] | _w1[2][31] | _w2[2][31]) == 0:
+                    _state.next = t_State.TEX2
+                elif (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                    _state.next = t_State.TEX3
+                else:
+                    _state.next = t_State.RASTERLOOP
+        elif _state == t_State.TEX1:
+            if i_smp_ack:
+                _tex_col[1].next = i_smp_dat
+                if (_w0[2][31] | _w1[2][31] | _w2[2][31]) == 0:
+                    _state.next = t_State.TEX2
+                elif (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                    _state.next = t_State.TEX3
+                else:
+                    _state.next = t_State.RASTERLOOP
+        elif _state == t_State.TEX2:
+            if i_smp_ack:
+                _tex_col[2].next = i_smp_dat
+                _state.next = t_State.TEX3
+                if (_w0[3][31] | _w1[3][31] | _w2[3][31]) == 0:
+                    _state.next = t_State.TEX3
+                else:
+                    _state.next = t_State.RASTERLOOP
+        elif _state == t_State.TEX3:
+            if i_smp_ack:
+                _tex_col[3].next = i_smp_dat
+                _state.next = t_State.RASTERLOOP
 
     @always_comb
     def process_comb():
         for i in range(4):
-            #r = sat_and_truncate(_col[i][0])
-            #g = sat_and_truncate(_col[i][1])
-            #b = sat_and_truncate(_col[i][2])
-            #a = sat_and_truncate(_col[i][3])
-            #o_wr_data_rgb[i].next = concat(a, b, g, r)
-            s = (_sow[i] * _1ow[i]) >> 12
-            t = (_tow[i] * _1ow[i]) >> 12
-            _s[i].next = s
-            _t[i].next = t
-            checker_s = (s >> 10) & 1
-            checker_t = (t >> 10) & 1
-            checker = checker_s ^ checker_t
-            o_wr_data_rgb[i].next = 0xFFFFFFFF if (checker == 1) else 0
+            vr = _col[i][0][20:12]
+            vg = _col[i][1][20:12]
+            vb = _col[i][2][20:12]
+            va = _col[i][3][20:12]
+            tr = _tex_col[i][8:0]
+            tg = _tex_col[i][16:8]
+            tb = _tex_col[i][24:16]
+            ta = _tex_col[i][32:24]
+            if i_tex_en:
+                cr = intbv((vr * tr) >> 8)[8:0]
+                cg = intbv((vg * tg) >> 8)[8:0]
+                cb = intbv((vb * tb) >> 8)[8:0]
+                ca = intbv((va * ta) >> 8)[8:0]
+                o_wr_data_rgb[i].next = concat(ca, cb, cg, cr)
+            else:
+                o_wr_data_rgb[i].next = concat(va, vb, vg, vr)
             o_wr_data_ds[i].next = sat_depth(_zow[i])
             o_wr_en_rgb[i].next = o_wr_en_ds[i].next = _state == t_State.RASTERLOOP and (_w0[i][31] | _w1[i][31] | _w2[i][31]) == 0
+
+        o_smp_stb.next = _state == t_State.TEX0 or _state == t_State.TEX1 or _state == t_State.TEX2 or _state == t_State.TEX3
+
+        if _state == t_State.TEX0:
+            o_smp_st[0].next = (_sow[0] * _1ow[0]) >> 12
+            o_smp_st[1].next = (_tow[0] * _1ow[0]) >> 12
+        elif _state == t_State.TEX1:
+            o_smp_st[0].next = (_sow[1] * _1ow[1]) >> 12
+            o_smp_st[1].next = (_tow[1] * _1ow[1]) >> 12
+        elif _state == t_State.TEX2:
+            o_smp_st[0].next = (_sow[2] * _1ow[2]) >> 12
+            o_smp_st[1].next = (_tow[2] * _1ow[2]) >> 12
+        elif _state == t_State.TEX3:
+            o_smp_st[0].next = (_sow[3] * _1ow[3]) >> 12
+            o_smp_st[1].next = (_tow[3] * _1ow[3]) >> 12
+
         o_wr_pos[0].next = _p[0]
         o_wr_pos[1].next = _p[1]
         o_busy.next = _state != t_State.WAITING

@@ -1,9 +1,12 @@
+import numpy as np
 from myhdl import block, delay, always, always_comb, Signal, ResetSignal, intbv, instance, now
 from PIL import Image
 
 from clk_driver import ClkDriver
 from tri_raster import TriRaster
-from mem import RAM
+from texcache import TexCache
+from texsample import TexSampler
+from mem import RAM, ROM
 
 def unpack_rgb(col):
     r = col & 0xFF
@@ -16,6 +19,42 @@ def Top():
     rst = ResetSignal(0, active=0, isasync=True)
     clk = Signal(0)
     clk_driver = ClkDriver(clk)
+
+    test_tex_rom_contents = tuple(map(int, np.fromfile("test_texdata_2.bin", dtype='uint32')))
+    test_tex_rom_o_data = Signal(intbv(0)[32:0])
+    test_tex_rom_i_adr = Signal(intbv(0)[8:0])
+    test_tex_rom = ROM(test_tex_rom_o_data, test_tex_rom_i_adr, CONTENT=test_tex_rom_contents)
+
+    test_tx_i_tex_adr = Signal(intbv(0)[8:0])
+    test_tx_i_tex_w = Signal(intbv(0)[4:0])
+    test_tx_i_tex_h = Signal(intbv(0)[4:0])
+    test_tx_i_tex_fmt = Signal(intbv(0)[2:0])
+    test_tx_i_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
+    test_tx_o_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    test_tx_i_stb = Signal(bool(0))
+    test_tx_o_ack = Signal(bool(0))
+    test_tx_o_mem_adr = Signal(intbv(0)[8:0])
+    test_tx_i_mem_dat = Signal(intbv(0)[32:0])
+    test_tx_o_mem_stb = Signal(bool(0))
+    test_tx_i_mem_ack = Signal(bool(0))
+    test_tx = TexCache(rst, clk, test_tx_i_tex_adr, test_tx_i_tex_w, test_tx_i_tex_h, test_tx_i_tex_fmt, test_tx_i_smp, test_tx_o_dat, test_tx_i_stb, test_tx_o_ack,
+                       test_tx_o_mem_adr, test_tx_i_mem_dat, test_tx_o_mem_stb, test_tx_i_mem_ack)
+    
+    smp_i_stb = Signal(bool(0))
+    smp_i_st = [Signal(intbv(0)[32:].signed()) for _ in range(2)]
+    smp_i_w = Signal(intbv(0)[4:0])
+    smp_i_h = Signal(intbv(0)[4:0])
+    smp_i_clmp_s = Signal(bool(0))
+    smp_i_clmp_t = Signal(bool(0))
+    smp_i_flt = Signal(bool(0))
+    smp_o_dat = Signal(intbv(0)[32:0])
+    smp_o_ack = Signal(bool(0))
+    smp_o_tc_stb = Signal(bool(0))
+    smp_o_tc_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
+    smp_i_tc_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    smp_i_tc_ack = Signal(bool(0))
+    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_i_flt, smp_o_dat, smp_o_ack,
+                          smp_o_tc_stb, smp_o_tc_smp, smp_i_tc_dat, smp_i_tc_ack)
     
     colorbuffer_addr = Signal(intbv(0)[32:0])
     colorbuffer_dout = [Signal(intbv(0)[32:0]) for _ in range(4)]
@@ -35,7 +74,7 @@ def Top():
     depthbuffer2 = RAM(depthbuffer_dout[2], depthbuffer_din[2], depthbuffer_addr, depthbuffer_we[2], clk, WIDTH=32, DEPTH=256, ID="depthbuffer_2")
     depthbuffer3 = RAM(depthbuffer_dout[3], depthbuffer_din[3], depthbuffer_addr, depthbuffer_we[3], clk, WIDTH=32, DEPTH=256, ID="depthbuffer_3")
 
-    tri_raster_en = Signal(bool(0))
+    tri_raster_stb = Signal(bool(0))
     tri_raster_busy = Signal(bool(0))
     tri_raster_wr_en_rgb = [Signal(bool(0)) for _ in range(4)]
     tri_raster_wr_data_rgb = [Signal(intbv(0)[32:0]) for _ in range(4)]
@@ -72,7 +111,7 @@ def Top():
                            tri_raster_tow_init, tri_raster_tow_dx, tri_raster_tow_dy,
                            tri_raster_zow_init, tri_raster_zow_dx, tri_raster_zow_dy,
                            tri_raster_tex_en,
-                           tri_raster_en, tri_raster_busy,
+                           tri_raster_stb, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
                            tri_raster_wr_en_ds, tri_raster_wr_data_ds,
                            tri_raster_wr_pos,
@@ -91,6 +130,28 @@ def Top():
 
     @always_comb
     def drive_comb():
+        test_tex_rom_i_adr.next = test_tx_o_mem_adr
+        test_tx_i_mem_dat.next = test_tex_rom_o_data
+        test_tx_i_mem_ack.next = test_tx_o_mem_stb
+
+        smp_i_w.next = test_tx_i_tex_w
+        smp_i_h.next = test_tx_i_tex_h
+
+        test_tx_i_smp[0].next = smp_o_tc_smp[0]
+        test_tx_i_smp[1].next = smp_o_tc_smp[1]
+
+        smp_i_tc_ack.next = test_tx_o_ack
+        test_tx_i_stb.next = smp_o_tc_stb
+
+        for i in range(4):
+            smp_i_tc_dat[i].next = test_tx_o_dat[i]
+
+        smp_i_stb.next = tri_raster_o_smp_stb
+        smp_i_st[0].next = tri_raster_o_smp_st[0]
+        smp_i_st[1].next = tri_raster_o_smp_st[1]
+        tri_raster_i_smp_ack.next = smp_o_ack
+        tri_raster_i_smp_dat.next = smp_o_dat
+
         colorbuffer_addr.next = depthbuffer_addr.next = tri_raster_wr_pos[0] + (tri_raster_wr_pos[1] << 4)
         for i in range(4):
             colorbuffer_din[i].next = tri_raster_wr_data_rgb[i]
@@ -122,6 +183,7 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
+        # test triangle
         tri_raster_v0[0].next = 0
         tri_raster_v0[1].next = 0
         tri_raster_v1[0].next = 32
@@ -152,9 +214,19 @@ def Top():
         tri_raster_tow_init.next = 0
         tri_raster_tow_dx.next = int(0.03125 * 4095)
         tri_raster_tow_dy.next = int(-0.03125 * 0.5 * 4095)
-        tri_raster_en.next = 1
+        # test texture: 8x8 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
+        test_tx_i_tex_adr.next = 0
+        test_tx_i_tex_w.next = 3
+        test_tx_i_tex_h.next = 3
+        test_tx_i_tex_fmt.next = 2
+        smp_i_flt.next = True
+        smp_i_clmp_s.next = False
+        smp_i_clmp_t.next = False
+        #
+        tri_raster_tex_en.next = 1
+        tri_raster_stb.next = 1
         yield delay(20)
-        tri_raster_en.next = 0
+        tri_raster_stb.next = 0
         begin_time = now()
         while tri_raster_busy:
             yield delay(20)
@@ -168,7 +240,8 @@ def Top():
     return (clk_driver,
             colorbuffer0, colorbuffer1, colorbuffer2, colorbuffer3,
             depthbuffer0, depthbuffer1, depthbuffer2, depthbuffer3,
+            test_tex_rom, test_tx, test_smp,
             tri_raster, drive_comb, drive_test, write_img)
 
 inst = Top()
-inst.run_sim(20 * 1600)
+inst.run_sim(20 * 6400)
