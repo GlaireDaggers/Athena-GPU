@@ -6,7 +6,7 @@ This is a theoretical hardware implementation of the GPU for my fantasy console,
 
 # Current State
 
-Executing `python3 test.py` rasterizes a rainbow triangle into a 32x32 image and outputs the results to `test.png`.
+Executing `python3 test.py` rasterizes a triangle with rainbow vertex colors and a test crate texture into a 32x32 image and outputs the results to `test.png` (as well as outputting a depth buffer to `test_depth.png`).
 
 # Goal
 
