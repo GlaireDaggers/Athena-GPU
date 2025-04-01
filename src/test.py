@@ -60,16 +60,24 @@ def Top():
     tri_raster_zow_init = Signal(intbv(0)[32:0].signed())
     tri_raster_zow_dx = Signal(intbv(0)[32:0].signed())
     tri_raster_zow_dy = Signal(intbv(0)[32:0].signed())
+    tri_raster_tex_en = Signal(bool(0))
+    tri_raster_o_smp_stb = Signal(bool(0))
+    tri_raster_o_smp_st = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
+    tri_raster_i_smp_dat = Signal(intbv(0)[32:0])
+    tri_raster_i_smp_ack = Signal(bool(0))
     tri_raster = TriRaster(rst, clk, tri_raster_v0, tri_raster_v1, tri_raster_v2,
                            tri_raster_col_init, tri_raster_col_dx, tri_raster_col_dy,
                            tri_raster_1ow_init, tri_raster_1ow_dx, tri_raster_1ow_dy,
                            tri_raster_sow_init, tri_raster_sow_dx, tri_raster_sow_dy,
                            tri_raster_tow_init, tri_raster_tow_dx, tri_raster_tow_dy,
                            tri_raster_zow_init, tri_raster_zow_dx, tri_raster_zow_dy,
+                           tri_raster_tex_en,
                            tri_raster_en, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
                            tri_raster_wr_en_ds, tri_raster_wr_data_ds,
-                           tri_raster_wr_pos, DIM = 32)
+                           tri_raster_wr_pos,
+                           tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
+                           DIM = 32)
 
     buffer_color = Image.new('RGB', (32, 32))
     for j in range(0,32):

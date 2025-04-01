@@ -9,7 +9,10 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_sow_init, i_sow_dx, i_sow_dy,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
-              i_en, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos, DIM=32):
+              i_tex_en,
+              i_en, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos,
+              o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
+              DIM=32):
     """
     Triangle rasterizer
 
@@ -33,6 +36,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_zow_init: starting z/w (at top left corner of triangle bounds) - Q12.12 fixed point
     - i_zow_dx: z/w increment wrt x - Q12.12 fixed point
     - i_zow_dy: z/w increment wrt y - Q12.12 fixed point
+    - i_tex_en: Enable texturing
     - i_en: Begin rasterization
     - o_busy: 1 if busy, 0 if idle
     - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
@@ -40,6 +44,10 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - o_wr_en_ds: for each pixel in cluster, 1 if output pixel depth+stencil is valid, 0 otherwise
     - o_wr_data_ds: Output pixel cluster depth+stencil values
     - o_wr_pos: Output pixel cluster x/y
+    - o_smp_stb: Output request transaction signal to TexSampler unit
+    - o_smp_st: Output ST coordinates to TexSampler unit
+    - i_smp_dat: Input texture sample from TexSampler unit
+    - i_smp_ack: Input request acknowledge signal from TexSampler unit
     
     - DIM: width/height of render area
     """

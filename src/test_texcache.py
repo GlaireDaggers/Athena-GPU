@@ -40,13 +40,14 @@ def Top():
     smp_i_h = Signal(intbv(0)[4:0])
     smp_i_clmp_s = Signal(bool(0))
     smp_i_clmp_t = Signal(bool(0))
+    smp_i_flt = Signal(bool(0))
     smp_o_dat = Signal(intbv(0)[32:0])
     smp_o_ack = Signal(bool(0))
     smp_o_tc_stb = Signal(bool(0))
     smp_o_tc_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
     smp_i_tc_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
     smp_i_tc_ack = Signal(bool(0))
-    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_o_dat, smp_o_ack,
+    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_i_flt, smp_o_dat, smp_o_ack,
                           smp_o_tc_stb, smp_o_tc_smp, smp_i_tc_dat, smp_i_tc_ack)
 
     test_img = Image.new('RGB', (32, 32))
@@ -75,13 +76,14 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
-        # test: sample 8x8 texture at address 0, NXTC, clamp S, clamp T
+        # test: sample 8x8 texture at address 0, NXTC, clamp S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 3
         test_tx_i_tex_h.next = 3
         test_tx_i_tex_fmt.next = 3
+        smp_i_flt.next = True
         smp_i_clmp_s.next = True
-        smp_i_clmp_t.next = True
+        smp_i_clmp_t.next = False
 
         for j in range(32):
             for i in range(32):
@@ -100,9 +102,9 @@ def Top():
                 yield delay(20)
         
         test_img.save("test_texsample.png")
-        print("Finished")
+        print("%s Finished" % now())
 
     return clk_driver, drive_test, drive_comb, test_ram, test_smp, test_tx
 
 inst = Top()
-inst.run_sim(20 * 6400)
+inst.run_sim(20 * 4000)
