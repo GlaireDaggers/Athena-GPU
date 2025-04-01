@@ -10,7 +10,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
               i_tex_en,
-              i_en, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos,
+              i_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_ds, o_wr_data_ds, o_wr_pos,
               o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
               DIM=32):
     """
@@ -37,7 +37,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_zow_dx: z/w increment wrt x - Q12.12 fixed point
     - i_zow_dy: z/w increment wrt y - Q12.12 fixed point
     - i_tex_en: Enable texturing
-    - i_en: Begin rasterization
+    - i_stb: Input draw triangle request signal
     - o_busy: 1 if busy, 0 if idle
     - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
     - o_wr_data_rgb: Output pixel cluster colors
@@ -137,7 +137,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
         if i_rst == 0:
             _state.next = t_State.WAITING
         elif _state == t_State.WAITING:
-            if i_en:
+            if i_stb:
                 # capture triangle parameters
                 _v0[0].next = i_v0[0]
                 _v0[1].next = i_v0[1]

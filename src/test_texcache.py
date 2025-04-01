@@ -76,11 +76,11 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
-        # test: sample 8x8 texture at address 0, NXTC, clamp S, wrap T, bilinear filtering
+        # test: sample 8x8 texture at address 0, NXTC mode 0, clamp S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 3
         test_tx_i_tex_h.next = 3
-        test_tx_i_tex_fmt.next = 3
+        test_tx_i_tex_fmt.next = 2
         smp_i_flt.next = True
         smp_i_clmp_s.next = True
         smp_i_clmp_t.next = False

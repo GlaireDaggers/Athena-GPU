@@ -57,8 +57,8 @@ def TexCache(i_rstn, i_clk, i_tex_adr, i_tex_w, i_tex_h, i_tex_fmt, i_smp, o_dat
                          arbiter_o_mem_adr, arbiter_o_mem_dat, arbiter_i_mem_dat, arbiter_o_mem_we, arbiter_o_mem_stb, arbiter_i_mem_ack,
                          NUM_PORTS=TOTAL_BLOCKS)
     
-    # log2 of size per block of each format (RGBA4444, RGBA8888, A8, and NXTC)
-    _blk_shift_table = (3, 4, 2, 1)
+    # log2 of size per block of each format (RGBA4444, RGBA8888, NXTC mode 0, and NXTC mode 1)
+    _blk_shift_table = (3, 4, 1, 2)
     
     @always_comb
     def comb_logic():

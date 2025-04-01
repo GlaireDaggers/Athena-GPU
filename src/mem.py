@@ -7,7 +7,6 @@ def RAM(o_data, i_data, i_addr, i_we, i_clk, WIDTH=8, DEPTH=128, ID="mem"):
     @always(i_clk.posedge)
     def write():
         if i_we:
-            # print("%s WRITE: %s -> %s" % (ID, i_data, i_addr))
             _mem[i_addr].next = i_data
 
     @always_comb
@@ -20,6 +19,7 @@ def RAM(o_data, i_data, i_addr, i_we, i_clk, WIDTH=8, DEPTH=128, ID="mem"):
 def ROM(o_data, i_addr, CONTENT):
     @always_comb
     def read():
-        o_data.next = CONTENT[int(i_addr)]
+        mask = (1 << (len(CONTENT) - 1).bit_length()) - 1
+        o_data.next = CONTENT[int(i_addr) & mask]
 
     return read

@@ -1,6 +1,6 @@
 from myhdl import *
 
-t_State = enum("IDLE", "FILL_RGBA4444", "FILL_RGBA8888", "FILL_A8", "FILL_NXTC_0", "FILL_NXTC_1", "DEC_NXTC")
+t_State = enum("IDLE", "FILL_RGBA4444", "FILL_RGBA8888", "FILL_NXTC_0", "FILL_NXTC_1", "FILL_NXTC_2", "FILL_NXTC_3", "DEC_NXTC")
 
 """
 === NXTC FORMAT ===
@@ -20,6 +20,10 @@ The actual logic can be done using simple sign inversions and bit shifts, which 
 =============
 |10|11|14|15|
 =============
+
+NXTC has two modes: Mode 0 and Mode 1
+Mode 0 encodes RGB data, and is assumed to be fully opaque
+Mode 1 extends the width of each block to 128 bits, adding a separate "alpha block". It is encoded in exactly the same way as RGB data, but only the "red" channel is used and is interpreted as alpha channel data.
 """
 
 # TODO: Support non-swizzled textures?
@@ -34,7 +38,7 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
     - i_clk: Clock signal
     
     - i_blk_adr: Input block address
-    - i_blk_fmt: Input block format (0 = rgba4444, 1 = rgba8888, 2 = a8, 3 = nxtc)
+    - i_blk_fmt: Input block format (0 = rgba4444, 1 = rgba8888, 2 = nxtc mode 0, 3 = nxtc mode 1)
     - i_smp: Input index of top-left sample within 4x4 block (x + (y << 2))
     - o_dat: Output read data [4 - one per texel in 2x2 block]
     - i_stb: Request transaction signal
@@ -56,9 +60,15 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
     _filladr = Signal(intbv(0)[32:])
     _filloffs = Signal(intbv(0)[4:])
 
-    _nxtc_median = Signal(intbv(0)[24:])
-    _nxtc_lscale = Signal(intbv(0)[10:])
-    _nxtc_offsets = [Signal(intbv(0)[10:].signed()) for _ in range(16)]
+    _nxtc_median_rgb = Signal(intbv(0)[24:])
+    _nxtc_lscale_rgb = Signal(intbv(0)[10:])
+    _nxtc_offsets_rgb = [Signal(intbv(0)[10:].signed()) for _ in range(16)]
+
+    _nxtc_median_a = Signal(intbv(0)[8:])
+    _nxtc_lscale_a = Signal(intbv(0)[10:])
+    _nxtc_offsets_a = [Signal(intbv(0)[10:].signed()) for _ in range(16)]
+
+    _nxtc_mode = Signal(0)
 
     # final luma offset = trunc(luma_scale * scale_table[idx])
     # scale_table = (-0.25, 0.25, -1.0, 1.0)
@@ -85,8 +95,10 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
                 elif i_blk_fmt == 1:
                     _state.next = t_State.FILL_RGBA8888
                 elif i_blk_fmt == 2:
-                    _state.next = t_State.FILL_A8
+                    _nxtc_mode.next = 0
+                    _state.next = t_State.FILL_NXTC_0
                 elif i_blk_fmt == 3:
+                    _nxtc_mode.next = 1
                     _state.next = t_State.FILL_NXTC_0
                 _filloffs.next = 0
                 _filladr.next = i_blk_adr
@@ -95,7 +107,6 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
             # when cache is full, set block address & valid and switch back to IDLE state
             if i_mem_ack:
                 bnk = concat(_filloffs[0], intbv(0)[1:])
-                #print("\tFill cache RGBA4444 (bnk: %d + %d, offs: %s, addr: %s, data: %s)" % (bnk, bnk + 1, _filloffs[3:1], o_mem_adr, i_mem_dat))
                 r0 = concat(i_mem_dat[4:0], intbv(0)[4:0])
                 g0 = concat(i_mem_dat[8:4], intbv(0)[4:0])
                 b0 = concat(i_mem_dat[12:8], intbv(0)[4:0])
@@ -110,73 +121,66 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
                     _blkadr.next = _filladr
                     _valid.next = True
                     _state.next = t_State.IDLE
-                    #print("\tCache filled")
                 else:
                     _filloffs.next = _filloffs + 1
         elif _state == t_State.FILL_RGBA8888:
             # if backing memory acks request, fill spot and increment
             # when cache is full, set block address & valid and switch back to IDLE state
             if i_mem_ack:
-                #print("\tFill cache RGBA8888 (bnk: %d, offs: %d, addr: %s, data: %s)" % (_filloffs[2:0], _filloffs[4:2], o_mem_adr, i_mem_dat))
                 _cachemem[_filloffs[2:]][_filloffs[4:2]].next = i_mem_dat
                 if _filloffs == 15:
                     _blkadr.next = _filladr
                     _valid.next = True
                     _state.next = t_State.IDLE
-                    #print("\tCache filled")
-                else:
-                    _filloffs.next = _filloffs + 1
-        elif _state == t_State.FILL_A8:
-            # if backing memory acks request, fill spot and increment
-            # when cache is full, set block address & valid and switch back to IDLE state
-            if i_mem_ack:
-                #print("\tFill cache A8 (offs: %s, addr: %s, data: %s)" % (_filloffs[2:0], o_mem_adr, i_mem_dat))
-                a0 = i_mem_dat[8:0]
-                a1 = i_mem_dat[16:8]
-                a2 = i_mem_dat[24:16]
-                a3 = i_mem_dat[32:24]
-                _cachemem[0][_filloffs[2:0]].next = concat(a0, intbv(0xFFFFFF)[24:0])
-                _cachemem[1][_filloffs[2:0]].next = concat(a1, intbv(0xFFFFFF)[24:0])
-                _cachemem[2][_filloffs[2:0]].next = concat(a2, intbv(0xFFFFFF)[24:0])
-                _cachemem[3][_filloffs[2:0]].next = concat(a3, intbv(0xFFFFFF)[24:0])
-                if _filloffs == 3:
-                    _blkadr.next = _filladr
-                    _valid.next = True
-                    _state.next = t_State.IDLE
-                    #print("\tCache filled")
                 else:
                     _filloffs.next = _filloffs + 1
         elif _state == t_State.FILL_NXTC_0:
             if i_mem_ack:
-                #print("\tNXTC median: %s, luma scale: %s" % (i_mem_dat[24:0], i_mem_dat[32:24]))
-                _nxtc_median.next = i_mem_dat[24:0]
-                _nxtc_lscale.next = i_mem_dat[32:24]
+                _nxtc_median_rgb.next = i_mem_dat[24:0]
+                _nxtc_lscale_rgb.next = i_mem_dat[32:24]
                 _filloffs.next = 1
                 _state.next = t_State.FILL_NXTC_1
         elif _state == t_State.FILL_NXTC_1:
             if i_mem_ack:
-                #print("\tNXTC indices: %s" % i_mem_dat)
+                _filloffs.next = 2
                 for i in range(16):
                     low_bit = i << 1
                     high_bit = low_bit + 2
                     idx = i_mem_dat[high_bit:low_bit]
-                    _nxtc_offsets[i].next = (_nxtc_lscale if idx[0] else -_nxtc_lscale) >> (0 if idx[1] else 2)
+                    _nxtc_offsets_rgb[i].next = (_nxtc_lscale_rgb if idx[0] else -_nxtc_lscale_rgb) >> (0 if idx[1] else 2)
+                if _nxtc_mode:
+                    _state.next = t_State.FILL_NXTC_2
+                else:
+                    _state.next = t_State.DEC_NXTC
+        elif _state == t_State.FILL_NXTC_2:
+            if i_mem_ack:
+                _nxtc_median_a.next = i_mem_dat[8:0]
+                _nxtc_lscale_a.next = i_mem_dat[32:24]
+                _filloffs.next = 3
+                _state.next = t_State.FILL_NXTC_3
+        elif _state == t_State.FILL_NXTC_3:
+            if i_mem_ack:
+                for i in range(16):
+                    low_bit = i << 1
+                    high_bit = low_bit + 2
+                    idx = i_mem_dat[high_bit:low_bit]
+                    _nxtc_offsets_a[i].next = (_nxtc_lscale_a if idx[0] else -_nxtc_lscale_a) >> (0 if idx[1] else 2)
                 _state.next = t_State.DEC_NXTC
         elif _state == t_State.DEC_NXTC:
             for i in range(16):
-                offs = _nxtc_offsets[i]
-                r = sat(_nxtc_median[8:0] + offs)
-                g = sat(_nxtc_median[16:8] + offs)
-                b = sat(_nxtc_median[24:16] + offs)
-                col = concat(intbv(255)[8:0], b, g, r)
+                offs_rgb = _nxtc_offsets_rgb[i]
+                offs_a = _nxtc_offsets_a[i]
+                r = sat(_nxtc_median_rgb[8:0] + offs_rgb)
+                g = sat(_nxtc_median_rgb[16:8] + offs_rgb)
+                b = sat(_nxtc_median_rgb[24:16] + offs_rgb)
+                a = sat(_nxtc_median_a + offs_a) if _nxtc_mode else intbv(255)[8:0]
+                col = concat(a, b, g, r)
                 bnk = i & 3
                 bnkoffs = i >> 2
                 _cachemem[bnk][bnkoffs].next = col
-                #print("\tFill cache NXTC (bank: %d, offs: %d, data: %s)" % (bnk, bnkoffs, col))
             _blkadr.next = _filladr
             _valid.next = True
             _state.next = t_State.IDLE
-            #print("\tCache filled")
 
     @always_comb
     def access():
@@ -218,6 +222,6 @@ def TexBlock(i_rstn, i_clk, i_blk_adr, i_blk_fmt, i_smp, o_dat, i_stb, o_ack,
             o_dat[3].next = _cachemem[0][adr3]
 
         o_mem_adr.next = _filladr + _filloffs
-        o_mem_stb.next = (_state == t_State.FILL_RGBA4444 or _state == t_State.FILL_RGBA8888 or _state == t_State.FILL_A8 or _state == t_State.FILL_NXTC_0 or _state == t_State.FILL_NXTC_1)
+        o_mem_stb.next = (_state == t_State.FILL_RGBA4444 or _state == t_State.FILL_RGBA8888 or _state == t_State.FILL_NXTC_0 or _state == t_State.FILL_NXTC_1 or _state == t_State.FILL_NXTC_2 or _state == t_State.FILL_NXTC_3)
 
     return reset_and_fill, access
