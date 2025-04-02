@@ -109,10 +109,13 @@ def Top():
     tri_raster_bl_src = Signal(intbv(0)[4:0])
     tri_raster_bl_dst = Signal(intbv(0)[4:0])
     tri_raster_bl_op = Signal(0)
+    tri_raster_fog_en = Signal(bool(0))
+    tri_raster_fog_col = Signal(intbv(0)[32:])
     tri_raster_o_smp_stb = Signal(bool(0))
     tri_raster_o_smp_st = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_i_smp_dat = Signal(intbv(0)[32:0])
     tri_raster_i_smp_ack = Signal(bool(0))
+    tri_raster_i_fog_tbl = [Signal(intbv(0)[8:0]) for _ in range(64)]
     tri_raster = TriRaster(rst, clk, tri_raster_v0, tri_raster_v1, tri_raster_v2,
                            tri_raster_col_init, tri_raster_col_dx, tri_raster_col_dy,
                            tri_raster_1ow_init, tri_raster_1ow_dx, tri_raster_1ow_dy,
@@ -121,12 +124,14 @@ def Top():
                            tri_raster_zow_init, tri_raster_zow_dx, tri_raster_zow_dy,
                            tri_raster_tex_en, tri_raster_dtest_en, tri_raster_dcmp,
                            tri_raster_bl_en, tri_raster_bl_src, tri_raster_bl_dst, tri_raster_bl_op,
+                           tri_raster_fog_en, tri_raster_fog_col,
                            tri_raster_stb, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
                            tri_raster_wr_en_d, tri_raster_wr_data_d,
                            tri_raster_wr_pos,
                            tri_raster_rd_data_rgb, tri_raster_rd_data_d,
                            tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
+                           tri_raster_i_fog_tbl,
                            DIM = 32)
 
     buffer_color = Image.new('RGBA', (32, 32))
@@ -235,6 +240,13 @@ def Top():
         #tri_raster_bl_src.next = 3
         #tri_raster_bl_dst.next = 1
         #tri_raster_bl_op.next = 1
+        # setup fog table
+        for i in range(64):
+            if i > 16:
+                tri_raster_i_fog_tbl[i].next = min((i - 16) << 4, 255)
+        # enable fog, color = (128, 128, 128)
+        tri_raster_fog_en.next = True
+        tri_raster_fog_col.next = 0x808080
         # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 5
