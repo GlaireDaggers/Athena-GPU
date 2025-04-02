@@ -13,7 +13,7 @@ def unpack_rgba(col):
     g = (col >> 8) & 0xFF
     b = (col >> 16) & 0xFF
     a = (col >> 24) & 0xFF
-    return (r, g, b, 255)
+    return (r, g, b, a)
 
 @block
 def Top():
@@ -75,7 +75,8 @@ def Top():
     depthbuffer2 = RAM(depthbuffer_dout[2], depthbuffer_din[2], depthbuffer_addr, depthbuffer_we[2], clk, WIDTH=32, DEPTH=256, ID="depthbuffer_2")
     depthbuffer3 = RAM(depthbuffer_dout[3], depthbuffer_din[3], depthbuffer_addr, depthbuffer_we[3], clk, WIDTH=32, DEPTH=256, ID="depthbuffer_3")
 
-    tri_raster_stb = Signal(bool(0))
+    tri_raster_tri_stb = Signal(bool(0))
+    tri_raster_fill_stb = Signal(bool(0))
     tri_raster_busy = Signal(bool(0))
     tri_raster_wr_en_rgb = [Signal(bool(0)) for _ in range(4)]
     tri_raster_wr_data_rgb = [Signal(intbv(0)[32:0]) for _ in range(4)]
@@ -125,7 +126,7 @@ def Top():
                            tri_raster_tex_en, tri_raster_dtest_en, tri_raster_dcmp,
                            tri_raster_bl_en, tri_raster_bl_src, tri_raster_bl_dst, tri_raster_bl_op,
                            tri_raster_fog_en, tri_raster_fog_col,
-                           tri_raster_stb, tri_raster_busy,
+                           tri_raster_tri_stb, tri_raster_fill_stb, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
                            tri_raster_wr_en_d, tri_raster_wr_data_d,
                            tri_raster_wr_pos,
@@ -137,7 +138,7 @@ def Top():
     buffer_color = Image.new('RGBA', (32, 32))
     for j in range(0,32):
         for i in range(0,32):
-            buffer_color.putpixel((i, j), (64, 128, 255, 255))
+            buffer_color.putpixel((i, j), (0, 0, 0, 0))
 
     buffer_depth = Image.new('L', (32, 32))
     for j in range(0,32):
@@ -201,6 +202,22 @@ def Top():
         yield delay(100)
         rst.next = 1
         yield delay(100)
+        # clear tile buffer
+        tri_raster_col_init[0].next = (64 << 12)
+        tri_raster_col_init[1].next = (128 << 12)
+        tri_raster_col_init[2].next = (255 << 12)
+        tri_raster_col_init[3].next = (255 << 12)
+        tri_raster_zow_init.next = 0xFFFFFF
+        tri_raster_fill_stb.next = True
+        #
+        yield delay(20)
+        tri_raster_fill_stb.next = 0
+        begin_time = now()
+        while tri_raster_busy:
+            yield delay(20)
+        end_time = now()
+        cycle_time = int((end_time - begin_time) / 20)
+        print("Cleared buffer in %s cycles" % cycle_time)
         # test triangle
         tri_raster_v0[0].next = 0
         tri_raster_v0[1].next = 0
@@ -211,15 +228,15 @@ def Top():
         tri_raster_col_init[0].next = (255 << 12)
         tri_raster_col_init[1].next = 0
         tri_raster_col_init[2].next = 0
-        tri_raster_col_init[3].next = 0
+        tri_raster_col_init[3].next = (128 << 12)
         tri_raster_col_dx[0].next = int(-7.96875 * 4096)
         tri_raster_col_dx[1].next = int(7.96875 * 4096)
         tri_raster_col_dx[2].next = 0
-        tri_raster_col_dx[3].next = int(7.96875 * 4096)
+        tri_raster_col_dx[3].next = 0
         tri_raster_col_dy[0].next = int(-7.96875 * 0.5 * 4096)
         tri_raster_col_dy[1].next = int(-7.96875 * 0.5 * 4096)
         tri_raster_col_dy[2].next = int(7.96875 * 4096)
-        tri_raster_col_dy[3].next = int(7.96875 * 0.5 * 4096)
+        tri_raster_col_dy[3].next = 0
         tri_raster_1ow_init.next = int(1.0 * 4096)
         tri_raster_1ow_dx.next = 0
         tri_raster_1ow_dy.next = 0
@@ -232,14 +249,14 @@ def Top():
         tri_raster_tow_init.next = 0
         tri_raster_tow_dx.next = 0
         tri_raster_tow_dy.next = int(0.03125 * 4095)
-        # enable depth test, greater-or-equal
+        # enable depth test, less-or-equal
         tri_raster_dtest_en.next = True
-        tri_raster_dcmp.next = 7
-        # enable blending, src factor = src alpha, dst factor = one, blend op = sub
-        #tri_raster_bl_en.next = True
-        #tri_raster_bl_src.next = 3
-        #tri_raster_bl_dst.next = 1
-        #tri_raster_bl_op.next = 1
+        tri_raster_dcmp.next = 6
+        # enable blending, src factor = src alpha, dst factor = inv src alpha, blend op = add
+        tri_raster_bl_en.next = True
+        tri_raster_bl_src.next = 3
+        tri_raster_bl_dst.next = 7
+        tri_raster_bl_op.next = 0
         # setup fog table
         for i in range(64):
             if i > 16:
@@ -257,9 +274,9 @@ def Top():
         smp_i_clmp_t.next = True
         #
         tri_raster_tex_en.next = 1
-        tri_raster_stb.next = 1
+        tri_raster_tri_stb.next = 1
         yield delay(20)
-        tri_raster_stb.next = 0
+        tri_raster_tri_stb.next = 0
         begin_time = now()
         while tri_raster_busy:
             yield delay(20)

@@ -1,6 +1,6 @@
 from myhdl import *
 
-t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP", "TEX0", "TEX1", "TEX2", "TEX3", "BLEND0", "BLEND1", "BLEND2", "BLEND3")
+t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP", "TEX0", "TEX1", "TEX2", "TEX3", "COMBINE", "BLEND0", "BLEND1", "BLEND2", "BLEND3", "FILL")
 
 @block
 def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
@@ -10,7 +10,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
               i_tex_en, i_dtest_en, i_dcmp, i_bl_en, i_bl_src, i_bl_dst, i_bl_op, i_fog_en, i_fog_col,
-              i_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_d, o_wr_data_d, o_wr_pos,
+              i_tri_stb, i_fill_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_d, o_wr_data_d, o_wr_pos,
               i_rd_data_rgb, i_rd_data_d,
               o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
               i_fog_tbl,
@@ -47,7 +47,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_bl_op: Blend operation (0 = dst + src, 1 = dst - src)
     - i_fog_en: Enable fog
     - i_fog_col: Fog color
-    - i_stb: Input draw triangle request signal
+    - i_tri_stb: Input draw triangle request signal
+    - i_fill_stb: Input fill request signal
     - o_busy: 1 if busy, 0 if idle
     - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
     - o_wr_data_rgb: Output pixel cluster colors
@@ -115,7 +116,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     _zow = [Signal(intbv(0)[32:0].signed()) for _ in range(4)]
 
     _tex_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
-    _bl_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    _out_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
 
     _sample_valid = [Signal(bool(0)) for _ in range(4)]
     _depth_test = [Signal(bool(0)) for _ in range(4)]
@@ -204,10 +205,10 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             return intbv(a)[8:0]
     
     def do_blend(idx):
-        src_r = _tex_col[idx][8:0] if i_tex_en else _col[idx][0][20:12]
-        src_g = _tex_col[idx][16:8] if i_tex_en else _col[idx][1][20:12]
-        src_b = _tex_col[idx][24:16] if i_tex_en else _col[idx][2][20:12]
-        src_a = _tex_col[idx][32:24] if i_tex_en else _col[idx][3][20:12]
+        src_r = _out_col[idx][8:0]
+        src_g = _out_col[idx][16:8]
+        src_b = _out_col[idx][24:16]
+        src_a = _out_col[idx][32:24]
         src_rgba = (src_r, src_g, src_b, src_a)
 
         dst_r = i_rd_data_rgb[idx][8:0]
@@ -245,9 +246,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
         return (0, 0, 0)
 
     def get_out_color(idx):
-        if i_bl_en:
-            return _bl_col[idx]
-        elif i_tex_en:
+        if i_tex_en:
             return _tex_col[idx]
         else:
             vr = _col[idx][0][20:12]
@@ -255,13 +254,39 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             vb = _col[idx][2][20:12]
             va = _col[idx][3][20:12]
             return concat(va, vb, vg, vr)
+        
+    def apply_fog(src_col, zow):
+        if i_fog_en:
+            fog_idx = zow[24:18]
+            fog_density = i_fog_tbl[fog_idx]
+            fr = i_fog_col[8:0]
+            fg = i_fog_col[16:8]
+            fb = i_fog_col[24:16]
+            cr = src_col[8:0]
+            cg = src_col[16:8]
+            cb = src_col[24:16]
+            ca = src_col[32:24]
+            dr = fr - cr
+            dg = fg - cg
+            db = fb - cb
+            out_r = cr + ((dr * fog_density) >> 8)
+            out_g = cg + ((dg * fog_density) >> 8)
+            out_b = cb + ((db * fog_density) >> 8)
+            return concat(
+                ca,
+                intbv(out_b)[8:0],
+                intbv(out_g)[8:0],
+                intbv(out_r)[8:0]
+            )
+        else:
+            return src_col
 
     @always(i_clk.posedge, i_rst)
     def process():
         if i_rst == 0:
             _state.next = t_State.WAITING
         elif _state == t_State.WAITING:
-            if i_stb:
+            if i_tri_stb:
                 # capture triangle parameters
                 _v0[0].next = i_v0[0]
                 _v0[1].next = i_v0[1]
@@ -292,6 +317,33 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                 _bmax[1].next = max2(i_v0[1], i_v1[1])
                 #
                 _state.next = t_State.SETUP1
+            elif i_fill_stb:
+                # capture fill color + depth
+                for i in range(4):
+                    _out_col[i].next = concat(
+                        i_col_init[3][20:12],
+                        i_col_init[2][20:12],
+                        i_col_init[1][20:12],
+                        i_col_init[0][20:12]
+                    )
+                    _zow[i].next = i_zow_init
+                # set up fill position
+                _p[0].next = 0
+                _p[1].next = 0
+                #
+                _state.next = t_State.FILL
+        elif _state == t_State.FILL:
+            if _p[0] == 15:
+                if _p[1] == 15:
+                    # finished
+                    _state.next = t_State.WAITING
+                else:
+                    # next row
+                    _p[0].next = 0
+                    _p[1].next = _p[1] + 1
+            else:
+                # increment x
+                _p[0].next = _p[0].next + 1
         elif _state == t_State.SETUP1:
             # finish calculating triangle bounds
             _bmin[0].next = min2(_bmin[0], _v2[0])
@@ -387,11 +439,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             # if texturing enabled: switch to texturing state
             elif i_tex_en:
                 _state.next = t_State.TEX0
-            # otherwise, if blend enabled: switch to blending state
-            elif i_bl_en:
-                _state.next = t_State.BLEND0
             else:
-                _state.next = t_State.RASTERLOOP
+                _state.next = t_State.COMBINE
         elif _state == t_State.RASTERLOOP:
             if _p[0] == _bmax[0]:
                 if _p[1] == _bmax[1]:
@@ -460,9 +509,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     # if texturing is enabled: switch to texturing state
                     if i_tex_en:
                         _state.next = t_State.TEX0
-                    # otherwise, if blend enabled: switch to blending state
-                    elif i_bl_en:
-                        _state.next = t_State.BLEND0
+                    else:
+                        _state.next = t_State.COMBINE
             else:
                 # increment bary weights
                 for i in range(4):
@@ -484,9 +532,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                 # if texturing is enabled: switch to texturing state
                 if i_tex_en:
                     _state.next = t_State.TEX0
-                # otherwise, if blend enabled: switch to blending state
-                elif i_bl_en:
-                    _state.next = t_State.BLEND0
+                else:
+                    _state.next = t_State.COMBINE
         elif _state == t_State.TEX0:
             # actually if the computed bary weights lie outside the triangle, just skip texturing this cluster
             if (not _sample_valid[0] or not _depth_test[0]) and (not _sample_valid[1] or not _depth_test[1]) and (not _sample_valid[2] or not _depth_test[2]) and (not _sample_valid[3] or not _depth_test[3]):
@@ -499,10 +546,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     _state.next = t_State.TEX2
                 elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
-                elif i_bl_en:
-                    _state.next = t_State.BLEND0
                 else:
-                    _state.next = t_State.RASTERLOOP
+                    _state.next = t_State.COMBINE
         elif _state == t_State.TEX1:
             if i_smp_ack:
                 _tex_col[1].next = combine_vtx_colors(i_smp_dat, _col[1])
@@ -510,29 +555,30 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     _state.next = t_State.TEX2
                 elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
-                elif i_bl_en:
-                    _state.next = t_State.BLEND0
                 else:
-                    _state.next = t_State.RASTERLOOP
+                    _state.next = t_State.COMBINE
         elif _state == t_State.TEX2:
             if i_smp_ack:
                 _tex_col[2].next = combine_vtx_colors(i_smp_dat, _col[2])
                 _state.next = t_State.TEX3
                 if _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
-                elif i_bl_en:
-                    _state.next = t_State.BLEND0
                 else:
-                    _state.next = t_State.RASTERLOOP
+                    _state.next = t_State.COMBINE
         elif _state == t_State.TEX3:
             if i_smp_ack:
                 _tex_col[3].next = combine_vtx_colors(i_smp_dat, _col[3])
-                if i_bl_en:
-                    _state.next = t_State.BLEND0
-                else:
-                    _state.next = t_State.RASTERLOOP
+                _state.next = t_State.COMBINE
+        elif _state == t_State.COMBINE:
+            for i in range(4):
+                src_col = get_out_color(i)
+                _out_col[i].next = apply_fog(src_col, _zow[i])
+            if i_bl_en:
+                _state.next = t_State.BLEND0
+            else:
+                _state.next = t_State.RASTERLOOP
         elif _state == t_State.BLEND0:
-            _bl_col[0].next = do_blend(0)
+            _out_col[0].next = do_blend(0)
             if _sample_valid[1] and _depth_test[1]:
                 _state.next = t_State.BLEND1
             elif _sample_valid[2] and _depth_test[2]:
@@ -542,7 +588,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             else:
                 _state.next = t_State.RASTERLOOP
         elif _state == t_State.BLEND1:
-            _bl_col[1].next = do_blend(1)
+            _out_col[1].next = do_blend(1)
             if _sample_valid[2] and _depth_test[2]:
                 _state.next = t_State.BLEND2
             elif _sample_valid[3] and _depth_test[3]:
@@ -550,13 +596,13 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             else:
                 _state.next = t_State.RASTERLOOP
         elif _state == t_State.BLEND2:
-            _bl_col[2].next = do_blend(2)
+            _out_col[2].next = do_blend(2)
             if _sample_valid[3] and _depth_test[3]:
                 _state.next = t_State.BLEND3
             else:
                 _state.next = t_State.RASTERLOOP
         elif _state == t_State.BLEND3:
-            _bl_col[3].next = do_blend(3)
+            _out_col[3].next = do_blend(3)
             _state.next = t_State.RASTERLOOP
 
     @always_comb
@@ -568,39 +614,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             _sample_valid[i].next = smp_valid[i]
             _depth_test[i].next = dtest[i]
 
-            out_col = get_out_color(i)
-            
-            # TODO: this requires a whole extra 16 multipliers, and doesn't play nicely with blending since it will be applied *after* blending rather than before
-            # but it works for now
-            if i_fog_en:
-                # fetch fog density using upper 6 bits of Z/W
-                fog_idx = _zow[i][24:18]
-                fog_density = i_fog_tbl[fog_idx]
-                fr = i_fog_col[8:0]
-                fg = i_fog_col[16:8]
-                fb = i_fog_col[24:16]
-                cr = out_col[8:0]
-                cg = out_col[16:8]
-                cb = out_col[24:16]
-                ca = out_col[32:24]
-                dr = fr - cr
-                dg = fg - cg
-                db = fb - cb
-                out_r = cr + ((dr * fog_density) >> 8)
-                out_g = cg + ((dg * fog_density) >> 8)
-                out_b = cb + ((db * fog_density) >> 8)
-                # blend with fog color
-                o_wr_data_rgb[i].next = concat(
-                    ca,
-                    intbv(out_b)[8:0],
-                    intbv(out_g)[8:0],
-                    intbv(out_r)[8:0]
-                )
-            else:
-                o_wr_data_rgb[i].next = out_col
-
+            o_wr_data_rgb[i].next = _out_col[i]
             o_wr_data_d[i].next = _zow[i]
-            o_wr_en_rgb[i].next = o_wr_en_d[i].next = _state == t_State.RASTERLOOP and smp_valid[i] and dtest[i]
+            o_wr_en_rgb[i].next = o_wr_en_d[i].next = (_state == t_State.RASTERLOOP and smp_valid[i] and dtest[i]) or _state == t_State.FILL
 
         o_smp_stb.next = _state == t_State.TEX0 or _state == t_State.TEX1 or _state == t_State.TEX2 or _state == t_State.TEX3
 
