@@ -1,6 +1,6 @@
 from myhdl import *
 
-t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP", "TEX0", "TEX1", "TEX2", "TEX3")
+t_State = enum("WAITING", "SETUP1", "SETUP2", "SETUP3", "SETUP4", "RASTERLOOP", "TEX0", "TEX1", "TEX2", "TEX3", "BLEND0", "BLEND1", "BLEND2", "BLEND3")
 
 @block
 def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
@@ -9,7 +9,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_sow_init, i_sow_dx, i_sow_dy,
               i_tow_init, i_tow_dx, i_tow_dy,
               i_zow_init, i_zow_dx, i_zow_dy,
-              i_tex_en, i_dtest_en, i_dcmp,
+              i_tex_en, i_dtest_en, i_dcmp, i_bl_en, i_bl_src, i_bl_dst, i_bl_op,
               i_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_d, o_wr_data_d, o_wr_pos,
               i_rd_data_rgb, i_rd_data_d,
               o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
@@ -40,6 +40,10 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_tex_en: Enable texturing
     - i_dtest_en: Enable depth test
     - i_dcmp: Depth compare mode (0 = never, 1 = always, 2 = equal, 3 = not-equal, 4 = less, 5 = greater, 6 = less-or-equal, 7 = greater-or-equal)
+    - i_bl_en: Enable blending
+    - i_bl_src: Blend source factor (0 = zero, 1 = one, 2 = src color, 3 = src alpha, 4 = dst color, 5 = dst alpha, 6 = inv src color, 7 = inv src alpha, 8 = inv dst color, 9 = inv dst alpha)
+    - i_bl_dst: Blend dest factor (0 = zero, 1 = one, 2 = src color, 3 = src alpha, 4 = dst color, 5 = dst alpha, 6 = inv src color, 7 = inv src alpha, 8 = inv dst color, 9 = inv dst alpha)
+    - i_bl_op: Blend operation (0 = dst + src, 1 = dst - src)
     - i_stb: Input draw triangle request signal
     - o_busy: 1 if busy, 0 if idle
     - o_wr_en_rgb: for each pixel in cluster, 1 if output pixel color is valid, 0 otherwise
@@ -107,6 +111,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     _zow = [Signal(intbv(0)[32:0].signed()) for _ in range(4)]
 
     _tex_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
+    _bl_col = [Signal(intbv(0)[32:0]) for _ in range(4)]
 
     _sample_valid = [Signal(bool(0)) for _ in range(4)]
     _depth_test = [Signal(bool(0)) for _ in range(4)]
@@ -142,6 +147,87 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             return [(not i_dtest_en or _zow[i] >= i_rd_data_d[i]) for i in range(4)]
         else:
             return [False for _ in range(4)]
+        
+    def combine_vtx_colors(tex_col, vtx_col):
+        # combine tex col 0 with vertex col 0
+        vr = vtx_col[0][20:12]
+        vg = vtx_col[1][20:12]
+        vb = vtx_col[2][20:12]
+        va = vtx_col[3][20:12]
+        tr = tex_col[8:0]
+        tg = tex_col[16:8]
+        tb = tex_col[24:16]
+        ta = tex_col[32:24]
+        cr = intbv((vr * tr) >> 8)[8:0]
+        cg = intbv((vg * tg) >> 8)[8:0]
+        cb = intbv((vb * tb) >> 8)[8:0]
+        ca = intbv((va * ta) >> 8)[8:0]
+        return concat(ca, cb, cg, cr)
+    
+    def get_blend_fac(fac, src, dst):
+        if fac == 0:
+            return (0, 0, 0, 255)
+        elif fac == 1:
+            return (255, 255, 255, 255)
+        elif fac == 2:
+            return (src[0], src[1], src[2], 255)
+        elif fac == 3:
+            return (src[3], src[3], src[3], 255)
+        elif fac == 4:
+            return (dst[0], dst[1], dst[2], 255)
+        elif fac == 5:
+            return (dst[3], dst[3], dst[3], 255)
+        elif fac == 6:
+            return (255 - src[0], 255 - src[1], 255 - src[2], 255)
+        elif fac == 7:
+            return (255 - src[3], 255 - src[3], 255 - src[3], 255)
+        elif fac == 8:
+            return (255 - dst[0], 255 - dst[1], 255 - dst[2], 255)
+        elif fac == 9:
+            return (255 - dst[3], 255 - dst[3], 255 - dst[3], 255)
+        else:
+            return (0, 0, 0, 255)
+        
+    def color_mul(a, b):
+        return ((a[0] * b[0]) >> 8, (a[1] * b[1]) >> 8, (a[2] * b[2]) >> 8, (a[3] * b[3]) >> 8)
+    
+    def color_sat8(a):
+        if a < 0:
+            return intbv(0)[8:0]
+        elif a > 255:
+            return intbv(255)[8:0]
+        else:
+            return intbv(a)[8:0]
+    
+    def do_blend(idx):
+        src_r = _tex_col[idx][8:0] if i_tex_en else _col[idx][0][20:12]
+        src_g = _tex_col[idx][16:8] if i_tex_en else _col[idx][1][20:12]
+        src_b = _tex_col[idx][24:16] if i_tex_en else _col[idx][2][20:12]
+        src_a = _tex_col[idx][32:24] if i_tex_en else _col[idx][3][20:12]
+        src_rgba = (src_r, src_g, src_b, src_a)
+
+        dst_r = i_rd_data_rgb[idx][8:0]
+        dst_g = i_rd_data_rgb[idx][16:8]
+        dst_b = i_rd_data_rgb[idx][24:16]
+        dst_a = i_rd_data_rgb[idx][32:24]
+        dst_rgba = (dst_r, dst_g, dst_b, dst_a)
+
+        src_fac = get_blend_fac(i_bl_src, src_rgba, dst_rgba)
+        dst_fac = get_blend_fac(i_bl_dst, src_rgba, dst_rgba)
+
+        src_op = color_mul(src_rgba, src_fac)
+        dst_op = color_mul(dst_rgba, dst_fac)
+
+        if i_bl_op == 0:
+            return concat(color_sat8(dst_op[3] + src_op[3]),
+                          color_sat8(dst_op[2] + src_op[2]),
+                          color_sat8(dst_op[1] + src_op[1]),
+                          color_sat8(dst_op[0] + src_op[0]))
+        else:
+            return concat(color_sat8(dst_op[3] - src_op[3]),
+                          color_sat8(dst_op[2] - src_op[2]),
+                          color_sat8(dst_op[1] - src_op[1]),
+                          color_sat8(dst_op[0] - src_op[0]))
     
     @always(i_clk.posedge, i_rst)
     def process():
@@ -268,12 +354,15 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             _zow[2].next = _zow_row + _zow_dy
             _zow[3].next = _zow_row + _zow_dx + _zow_dy
             #
-            if i_tex_en:
-                # if the computed bary weights lie outside the triangle, just skip texturing this cluster
-                if (not _sample_valid[0]) and (not _sample_valid[1]) and (not _sample_valid[2]) and (not _sample_valid[3]):
-                    _state.next = t_State.RASTERLOOP
-                else:
-                    _state.next = t_State.TEX0
+            # if the computed bary weights lie outside the triangle, just skip this cluster
+            if (not _sample_valid[0]) and (not _sample_valid[1]) and (not _sample_valid[2]) and (not _sample_valid[3]):
+                _state.next = t_State.RASTERLOOP
+            # if texturing enabled: switch to texturing state
+            elif i_tex_en:
+                _state.next = t_State.TEX0
+            # otherwise, if blend enabled: switch to blending state
+            elif i_bl_en:
+                _state.next = t_State.BLEND0
             else:
                 _state.next = t_State.RASTERLOOP
         elif _state == t_State.RASTERLOOP:
@@ -344,6 +433,9 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                     # if texturing is enabled: switch to texturing state
                     if i_tex_en:
                         _state.next = t_State.TEX0
+                    # otherwise, if blend enabled: switch to blending state
+                    elif i_bl_en:
+                        _state.next = t_State.BLEND0
             else:
                 # increment bary weights
                 for i in range(4):
@@ -365,41 +457,80 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
                 # if texturing is enabled: switch to texturing state
                 if i_tex_en:
                     _state.next = t_State.TEX0
+                # otherwise, if blend enabled: switch to blending state
+                elif i_bl_en:
+                    _state.next = t_State.BLEND0
         elif _state == t_State.TEX0:
             # actually if the computed bary weights lie outside the triangle, just skip texturing this cluster
             if (not _sample_valid[0] or not _depth_test[0]) and (not _sample_valid[1] or not _depth_test[1]) and (not _sample_valid[2] or not _depth_test[2]) and (not _sample_valid[3] or not _depth_test[3]):
                 _state.next = t_State.RASTERLOOP
             elif i_smp_ack:
-                _tex_col[0].next = i_smp_dat
+                _tex_col[0].next = combine_vtx_colors(i_smp_dat, _col[0])
                 if _sample_valid[1] and _depth_test[1]:
                     _state.next = t_State.TEX1
                 elif _sample_valid[2] and _depth_test[2]:
                     _state.next = t_State.TEX2
                 elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
+                elif i_bl_en:
+                    _state.next = t_State.BLEND0
                 else:
                     _state.next = t_State.RASTERLOOP
         elif _state == t_State.TEX1:
             if i_smp_ack:
-                _tex_col[1].next = i_smp_dat
+                _tex_col[1].next = combine_vtx_colors(i_smp_dat, _col[1])
                 if _sample_valid[2] and _depth_test[2]:
                     _state.next = t_State.TEX2
                 elif _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
+                elif i_bl_en:
+                    _state.next = t_State.BLEND0
                 else:
                     _state.next = t_State.RASTERLOOP
         elif _state == t_State.TEX2:
             if i_smp_ack:
-                _tex_col[2].next = i_smp_dat
+                _tex_col[2].next = combine_vtx_colors(i_smp_dat, _col[2])
                 _state.next = t_State.TEX3
                 if _sample_valid[3] and _depth_test[3]:
                     _state.next = t_State.TEX3
+                elif i_bl_en:
+                    _state.next = t_State.BLEND0
                 else:
                     _state.next = t_State.RASTERLOOP
         elif _state == t_State.TEX3:
             if i_smp_ack:
-                _tex_col[3].next = i_smp_dat
+                _tex_col[3].next = combine_vtx_colors(i_smp_dat, _col[3])
+                if i_bl_en:
+                    _state.next = t_State.BLEND0
+                else:
+                    _state.next = t_State.RASTERLOOP
+        elif _state == t_State.BLEND0:
+            _bl_col[0].next = do_blend(0)
+            if _sample_valid[1] and _depth_test[1]:
+                _state.next = t_State.BLEND1
+            elif _sample_valid[2] and _depth_test[2]:
+                _state.next = t_State.BLEND2
+            elif _sample_valid[3] and _depth_test[3]:
+                _state.next = t_State.BLEND3
+            else:
                 _state.next = t_State.RASTERLOOP
+        elif _state == t_State.BLEND1:
+            _bl_col[1].next = do_blend(1)
+            if _sample_valid[2] and _depth_test[2]:
+                _state.next = t_State.BLEND2
+            elif _sample_valid[3] and _depth_test[3]:
+                _state.next = t_State.BLEND3
+            else:
+                _state.next = t_State.RASTERLOOP
+        elif _state == t_State.BLEND2:
+            _bl_col[2].next = do_blend(2)
+            if _sample_valid[3] and _depth_test[3]:
+                _state.next = t_State.BLEND3
+            else:
+                _state.next = t_State.RASTERLOOP
+        elif _state == t_State.BLEND3:
+            _bl_col[3].next = do_blend(3)
+            _state.next = t_State.RASTERLOOP
 
     @always_comb
     def process_comb():
@@ -414,16 +545,11 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             vg = _col[i][1][20:12]
             vb = _col[i][2][20:12]
             va = _col[i][3][20:12]
-            tr = _tex_col[i][8:0]
-            tg = _tex_col[i][16:8]
-            tb = _tex_col[i][24:16]
-            ta = _tex_col[i][32:24]
-            if i_tex_en:
-                cr = intbv((vr * tr) >> 8)[8:0]
-                cg = intbv((vg * tg) >> 8)[8:0]
-                cb = intbv((vb * tb) >> 8)[8:0]
-                ca = intbv((va * ta) >> 8)[8:0]
-                o_wr_data_rgb[i].next = concat(ca, cb, cg, cr)
+
+            if i_bl_en:
+                o_wr_data_rgb[i].next = _bl_col[i]
+            elif i_tex_en:
+                o_wr_data_rgb[i].next = _tex_col[i]
             else:
                 o_wr_data_rgb[i].next = concat(va, vb, vg, vr)
 

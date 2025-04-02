@@ -8,11 +8,12 @@ from texcache import TexCache
 from texsample import TexSampler
 from mem import RAM, ROM
 
-def unpack_rgb(col):
+def unpack_rgba(col):
     r = col & 0xFF
     g = (col >> 8) & 0xFF
     b = (col >> 16) & 0xFF
-    return (r, g, b)
+    a = (col >> 24) & 0xFF
+    return (r, g, b, 255)
 
 @block
 def Top():
@@ -104,6 +105,10 @@ def Top():
     tri_raster_tex_en = Signal(bool(0))
     tri_raster_dtest_en = Signal(bool(0))
     tri_raster_dcmp = Signal(intbv(0)[3:0])
+    tri_raster_bl_en = Signal(bool(0))
+    tri_raster_bl_src = Signal(intbv(0)[4:0])
+    tri_raster_bl_dst = Signal(intbv(0)[4:0])
+    tri_raster_bl_op = Signal(0)
     tri_raster_o_smp_stb = Signal(bool(0))
     tri_raster_o_smp_st = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_i_smp_dat = Signal(intbv(0)[32:0])
@@ -115,6 +120,7 @@ def Top():
                            tri_raster_tow_init, tri_raster_tow_dx, tri_raster_tow_dy,
                            tri_raster_zow_init, tri_raster_zow_dx, tri_raster_zow_dy,
                            tri_raster_tex_en, tri_raster_dtest_en, tri_raster_dcmp,
+                           tri_raster_bl_en, tri_raster_bl_src, tri_raster_bl_dst, tri_raster_bl_op,
                            tri_raster_stb, tri_raster_busy,
                            tri_raster_wr_en_rgb, tri_raster_wr_data_rgb,
                            tri_raster_wr_en_d, tri_raster_wr_data_d,
@@ -123,15 +129,15 @@ def Top():
                            tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
                            DIM = 32)
 
-    buffer_color = Image.new('RGB', (32, 32))
+    buffer_color = Image.new('RGBA', (32, 32))
     for j in range(0,32):
         for i in range(0,32):
-            buffer_color.putpixel((i, j), (64, 128, 255))
+            buffer_color.putpixel((i, j), (64, 128, 255, 255))
 
     buffer_depth = Image.new('L', (32, 32))
     for j in range(0,32):
         for i in range(0,32):
-            buffer_depth.putpixel((i, j), 255)
+            buffer_depth.putpixel((i, j), 0)
 
     @always_comb
     def drive_comb():
@@ -174,7 +180,7 @@ def Top():
                 py = tri_raster_wr_pos[1] << 1
                 px += i % 2
                 py += i >> 1 
-                col = unpack_rgb(tri_raster_wr_data_rgb[i])
+                col = unpack_rgba(tri_raster_wr_data_rgb[i])
                 buffer_color.putpixel((px, py), col)
             if tri_raster_wr_en_d[i]:
                 px = tri_raster_wr_pos[0] << 1
@@ -200,15 +206,15 @@ def Top():
         tri_raster_col_init[0].next = (255 << 12)
         tri_raster_col_init[1].next = 0
         tri_raster_col_init[2].next = 0
-        tri_raster_col_init[3].next = (255 << 12)
+        tri_raster_col_init[3].next = 0
         tri_raster_col_dx[0].next = int(-7.96875 * 4096)
         tri_raster_col_dx[1].next = int(7.96875 * 4096)
         tri_raster_col_dx[2].next = 0
-        tri_raster_col_dx[3].next = 0
+        tri_raster_col_dx[3].next = int(7.96875 * 4096)
         tri_raster_col_dy[0].next = int(-7.96875 * 0.5 * 4096)
         tri_raster_col_dy[1].next = int(-7.96875 * 0.5 * 4096)
         tri_raster_col_dy[2].next = int(7.96875 * 4096)
-        tri_raster_col_dy[3].next = 0
+        tri_raster_col_dy[3].next = int(7.96875 * 0.5 * 4096)
         tri_raster_1ow_init.next = int(1.0 * 4096)
         tri_raster_1ow_dx.next = 0
         tri_raster_1ow_dy.next = 0
@@ -224,6 +230,11 @@ def Top():
         # enable depth test, greater-or-equal
         tri_raster_dtest_en.next = True
         tri_raster_dcmp.next = 7
+        # enable blending, src factor = src alpha, dst factor = one, blend op = sub
+        #tri_raster_bl_en.next = True
+        #tri_raster_bl_src.next = 3
+        #tri_raster_bl_dst.next = 1
+        #tri_raster_bl_op.next = 1
         # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
         test_tx_i_tex_adr.next = 0
         test_tx_i_tex_w.next = 5
