@@ -23,7 +23,7 @@ Theoretically: the CPU would generates a table of command queue pointers, one pe
 - [X] Combine interpolated vertex color w/ fetched texel color
 - [X] Implement blending logic
 - [ ] Implement mip mapping support
-- [X] Implement table fog logic (look up fog density in table per pixel, blend output color w/ fog color) - NOTE: partial support, may need to revisit (doesn't work well with blending)
+- [X] Implement table fog logic (look up fog density in table per pixel, blend output color w/ fog color)
 - [ ] Work on tile dispatch logic (should be able to feed a table of per-tile command queues to tile dispatch, which in turn feeds commands to each tile core)
 - [ ] Logic for writing tile buffer contents into main "shared" memory (ideally: should be able to provide the address & dimensions of a framebuffer in main RAM & let the tile dispatch handle writing each tile's results into the correct location relative to given address)
 - [ ] Start working on actually synthesizing to an evaluation board for testing (currently eyeing Arty Z7-20, but open to other suggestions)
