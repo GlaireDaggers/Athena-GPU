@@ -26,6 +26,7 @@ def Top():
     test_tex_rom_i_adr = Signal(intbv(0)[8:0])
     test_tex_rom = ROM(test_tex_rom_o_data, test_tex_rom_i_adr, CONTENT=test_tex_rom_contents)
 
+    test_tx_i_tex_mip_tbl = [Signal(intbv(0)[8:0]) for _ in range(16)]
     test_tx_i_tex_adr = Signal(intbv(0)[8:0])
     test_tx_i_tex_w = Signal(intbv(0)[4:0])
     test_tx_i_tex_h = Signal(intbv(0)[4:0])
@@ -43,19 +44,23 @@ def Top():
     
     smp_i_stb = Signal(bool(0))
     smp_i_st = [Signal(intbv(0)[32:].signed()) for _ in range(2)]
+    smp_i_ddx = [Signal(intbv(0)[32:].signed()) for _ in range(2)]
+    smp_i_ddy = [Signal(intbv(0)[32:].signed()) for _ in range(2)]
     smp_i_w = Signal(intbv(0)[4:0])
     smp_i_h = Signal(intbv(0)[4:0])
     smp_i_clmp_s = Signal(bool(0))
     smp_i_clmp_t = Signal(bool(0))
     smp_i_flt = Signal(bool(0))
+    smp_i_mip = Signal(bool(0))
     smp_o_dat = Signal(intbv(0)[32:0])
     smp_o_ack = Signal(bool(0))
     smp_o_tc_stb = Signal(bool(0))
     smp_o_tc_smp = [Signal(intbv(0)[32:0]) for _ in range(2)]
+    smp_o_tc_mip = Signal(intbv(0)[4:0])
     smp_i_tc_dat = [Signal(intbv(0)[32:0]) for _ in range(4)]
     smp_i_tc_ack = Signal(bool(0))
-    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_i_flt, smp_o_dat, smp_o_ack,
-                          smp_o_tc_stb, smp_o_tc_smp, smp_i_tc_dat, smp_i_tc_ack)
+    test_smp = TexSampler(rst, clk, smp_i_stb, smp_i_st, smp_i_ddx, smp_i_ddy, smp_i_w, smp_i_h, smp_i_clmp_s, smp_i_clmp_t, smp_i_flt, smp_i_mip, smp_o_dat, smp_o_ack,
+                          smp_o_tc_stb, smp_o_tc_smp, smp_o_tc_mip, smp_i_tc_dat, smp_i_tc_ack)
     
     colorbuffer_addr = Signal(intbv(0)[32:0])
     colorbuffer_dout = [Signal(intbv(0)[32:0]) for _ in range(4)]
@@ -114,6 +119,8 @@ def Top():
     tri_raster_fog_col = Signal(intbv(0)[32:])
     tri_raster_o_smp_stb = Signal(bool(0))
     tri_raster_o_smp_st = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
+    tri_raster_o_smp_ddx = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
+    tri_raster_o_smp_ddy = [Signal(intbv(0)[32:0].signed()) for _ in range(2)]
     tri_raster_i_smp_dat = Signal(intbv(0)[32:0])
     tri_raster_i_smp_ack = Signal(bool(0))
     tri_raster_i_fog_tbl = [Signal(intbv(0)[8:0]) for _ in range(64)]
@@ -131,7 +138,7 @@ def Top():
                            tri_raster_wr_en_d, tri_raster_wr_data_d,
                            tri_raster_wr_pos,
                            tri_raster_rd_data_rgb, tri_raster_rd_data_d,
-                           tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
+                           tri_raster_o_smp_stb, tri_raster_o_smp_st, tri_raster_o_smp_ddx, tri_raster_o_smp_ddy, tri_raster_i_smp_dat, tri_raster_i_smp_ack,
                            tri_raster_i_fog_tbl,
                            DIM = 32)
 
@@ -156,6 +163,7 @@ def Top():
 
         test_tx_i_smp[0].next = smp_o_tc_smp[0]
         test_tx_i_smp[1].next = smp_o_tc_smp[1]
+        test_tx_i_tex_adr.next = test_tx_i_tex_mip_tbl[smp_o_tc_mip]
 
         smp_i_tc_ack.next = test_tx_o_ack
         test_tx_i_stb.next = smp_o_tc_stb
@@ -166,6 +174,10 @@ def Top():
         smp_i_stb.next = tri_raster_o_smp_stb
         smp_i_st[0].next = tri_raster_o_smp_st[0]
         smp_i_st[1].next = tri_raster_o_smp_st[1]
+        smp_i_ddx[0].next = tri_raster_o_smp_ddx[0]
+        smp_i_ddx[1].next = tri_raster_o_smp_ddx[1]
+        smp_i_ddy[0].next = tri_raster_o_smp_ddy[0]
+        smp_i_ddy[1].next = tri_raster_o_smp_ddy[1]
         tri_raster_i_smp_ack.next = smp_o_ack
         tri_raster_i_smp_dat.next = smp_o_dat
 
@@ -244,11 +256,11 @@ def Top():
         tri_raster_zow_dx.next = int(0.03125 * 0.5 * (1 << 24))
         tri_raster_zow_dy.next = int(0.03125 * 0.25 * (1 << 24))
         tri_raster_sow_init.next = 0
-        tri_raster_sow_dx.next = int(0.03125 * 4095)
-        tri_raster_sow_dy.next = int(-0.03125 * 0.5 * 4095)
+        tri_raster_sow_dx.next = int(0.03125 * 2.0 * 4095)
+        tri_raster_sow_dy.next = int(-0.03125 * 4095)
         tri_raster_tow_init.next = 0
         tri_raster_tow_dx.next = 0
-        tri_raster_tow_dy.next = int(0.03125 * 4095)
+        tri_raster_tow_dy.next = int(0.03125 * 2.0 * 4095)
         # enable depth test, less-or-equal
         tri_raster_dtest_en.next = True
         tri_raster_dcmp.next = 6
@@ -263,15 +275,16 @@ def Top():
                 tri_raster_i_fog_tbl[i].next = min((i - 16) << 4, 255)
         # enable fog, color = (128, 128, 128)
         tri_raster_fog_en.next = True
-        tri_raster_fog_col.next = 0x808080
-        # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering
-        test_tx_i_tex_adr.next = 0
+        tri_raster_fog_col.next = 0xFF808080
+        # test texture: 32x32 texture at address 0, NXTC mode 0, wrap S, wrap T, bilinear filtering, no mipmapping
+        test_tx_i_tex_mip_tbl[0].next = 0
         test_tx_i_tex_w.next = 5
         test_tx_i_tex_h.next = 5
         test_tx_i_tex_fmt.next = 2
         smp_i_flt.next = True
-        smp_i_clmp_s.next = True
-        smp_i_clmp_t.next = True
+        smp_i_clmp_s.next = False
+        smp_i_clmp_t.next = False
+        smp_i_mip.next = False
         #
         tri_raster_tex_en.next = 1
         tri_raster_tri_stb.next = 1

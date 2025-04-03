@@ -66,7 +66,7 @@ def TexCache(i_rstn, i_clk, i_tex_adr, i_tex_w, i_tex_h, i_tex_fmt, i_smp, o_dat
         # frankly most of what this is doing is routing a block address into each texture block,
         # and then piping the results of each block into the output 2x2 cluster
         # it also wires each texture block into a 4-way bus arbiter to manage each block's access to backing memory
-        
+
         txw = 1 << i_tex_w
         txh = 1 << i_tex_h
 

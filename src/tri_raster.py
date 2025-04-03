@@ -12,7 +12,7 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
               i_tex_en, i_dtest_en, i_dcmp, i_bl_en, i_bl_src, i_bl_dst, i_bl_op, i_fog_en, i_fog_col,
               i_tri_stb, i_fill_stb, o_busy, o_wr_en_rgb, o_wr_data_rgb, o_wr_en_d, o_wr_data_d, o_wr_pos,
               i_rd_data_rgb, i_rd_data_d,
-              o_smp_stb, o_smp_st, i_smp_dat, i_smp_ack,
+              o_smp_stb, o_smp_st, o_smp_ddx, o_smp_ddy, i_smp_dat, i_smp_ack,
               i_fog_tbl,
               DIM=32):
     """
@@ -59,6 +59,8 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
     - i_rd_data_d: Input pixel cluster depth values
     - o_smp_stb: Output request transaction signal to TexSampler unit
     - o_smp_st: Output ST coordinates to TexSampler unit
+    - o_smp_ddx: Output delta of ST wrt X to TexSampler unit
+    - o_smp_ddy: Output delta of ST wrt Y to TexSampler unit
     - i_smp_dat: Input texture sample from TexSampler unit
     - i_smp_ack: Input request acknowledge signal from TexSampler unit
     - i_fog_tbl: Input fog table registers [64]
@@ -243,7 +245,24 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
             return (_sow[2], _tow[2], _1ow[2])
         elif _state == t_State.TEX3:
             return (_sow[3], _tow[3], _1ow[3])
-        return (0, 0, 0)
+        else:
+            return (0, 0, 0)
+    
+    def get_stw_row():
+        if _state == t_State.TEX0 or _state == t_State.TEX1:
+            return (_sow[0], _tow[0], _1ow[0], _sow[1], _tow[1], _1ow[1])
+        elif _state == t_State.TEX2 or _state == t_State.TEX3:
+            return (_sow[2], _tow[2], _1ow[2], _sow[3], _tow[3], _1ow[3])
+        else:
+            return (0, 0, 0, 0, 0, 0)
+        
+    def get_stw_col():
+        if _state == t_State.TEX0 or _state == t_State.TEX2:
+            return (_sow[0], _tow[0], _1ow[0], _sow[2], _tow[2], _1ow[2])
+        elif _state == t_State.TEX1 or _state == t_State.TEX3:
+            return (_sow[1], _tow[1], _1ow[1], _sow[3], _tow[3], _1ow[3])
+        else:
+            return (0, 0, 0, 0, 0, 0)
 
     def get_out_color(idx):
         if i_tex_en:
@@ -621,8 +640,31 @@ def TriRaster(i_rst, i_clk, i_v0, i_v1, i_v2,
         o_smp_stb.next = _state == t_State.TEX0 or _state == t_State.TEX1 or _state == t_State.TEX2 or _state == t_State.TEX3
 
         (out_s, out_t, out_w) = get_out_stw()
-        o_smp_st[0].next = (out_s * out_w) >> 12
-        o_smp_st[1].next = (out_t * out_w) >> 12
+
+        s0 = (out_s * out_w) >> 12
+        t0 = (out_t * out_w) >> 12
+
+        wx1 = out_w + _1ow_dx
+        wy1 = out_w + _1ow_dy
+
+        sx1 = ((out_s + _sow_dx) * wx1) >> 12
+        tx1 = ((out_t + _tow_dx) * wx1) >> 12
+
+        sy1 = ((out_s + _sow_dy) * wy1) >> 12
+        ty1 = ((out_t + _tow_dy) * wy1) >> 12
+
+        dsdx = sx1 - s0
+        dsdy = sy1 - s0
+
+        dtdx = tx1 - t0
+        dtdy = ty1 - t0
+
+        o_smp_st[0].next = s0
+        o_smp_st[1].next = t0
+        o_smp_ddx[0].next = dsdx
+        o_smp_ddx[1].next = dtdx
+        o_smp_ddy[0].next = dsdy
+        o_smp_ddy[1].next = dtdy
 
         o_wr_pos[0].next = _p[0]
         o_wr_pos[1].next = _p[1]
